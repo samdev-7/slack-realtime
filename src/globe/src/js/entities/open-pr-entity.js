@@ -123,10 +123,11 @@ export default class OpenPrEntity {
       particleColors.push(baseColor.r, baseColor.g, baseColor.b);
     }
 
-    // NOTE: position attribute is intentionally NOT cleaned via
-    // onUpload(cleanBufferAttributeArray) — spawnSpike needs to update
-    // particle positions (the white dots) at runtime, which requires the
-    // CPU-side array to remain mutable.
+    // NOTE: position and index attributes are intentionally NOT cleaned
+    // via onUpload(cleanBufferAttributeArray) — spawnSpike updates the
+    // particle positions (the white dots) and overwrites per-instance
+    // index values to bypass the shader's data-cycle dimming, both of
+    // which require the CPU-side arrays to remain mutable.
     particleGeometry.setAttribute(
       'position',
       new Float32BufferAttribute(particlePositions, 3)
@@ -134,7 +135,7 @@ export default class OpenPrEntity {
 
     particleGeometry.setAttribute('color', new Float32BufferAttribute(particleColors, 3).onUpload(cleanBufferAttributeArray));
 
-    particleGeometry.setAttribute('index', new Float32BufferAttribute(particleIndices, 1).onUpload(cleanBufferAttributeArray));
+    particleGeometry.setAttribute('index', new Float32BufferAttribute(particleIndices, 1));
 
     const particleMaterial = new PointsMaterial({
       alphaTest: 0.05,
@@ -215,6 +216,29 @@ export default class OpenPrEntity {
     this._spawnSlot = this._spawnSlot >= this._spawnSlotMax
       ? this._spawnSlotMin
       : this._spawnSlot + 1;
+
+    // Bypass the shader's data-cycle dimming: both spike.vert and
+    // particle.vert scale geometry/alpha by smoothstep over
+    // distance(index, visibleIndex). With indexIncrementSpeed=0 (set in
+    // entry.js so we drive spawns ourselves), visibleIndex never moves,
+    // and any slot more than ~maxIndexDistance from it renders nearly
+    // invisible — the cylinder + tip vanish, leaving only the ping ring
+    // (which is a separate Mesh with no shader-side index logic). Force
+    // the slot's `index` attribute to equal visibleIndex so the shader's
+    // distance evaluates to 0 and the scale stays at 1.
+    const vIndex = this.spikeUniforms && this.spikeUniforms.visibleIndex
+      ? this.spikeUniforms.visibleIndex.value
+      : 0;
+    const spikeIndexAttr = this.spikes.geometry.attributes.index;
+    if (spikeIndexAttr.array) {
+      spikeIndexAttr.array[slot] = vIndex;
+      spikeIndexAttr.needsUpdate = true;
+    }
+    const partIndexAttr = this.particles.geometry.attributes.index;
+    if (partIndexAttr.array) {
+      partIndexAttr.array[slot] = vIndex;
+      partIndexAttr.needsUpdate = true;
+    }
 
     // Ping ring at the base, color-matched to the spike body. Oriented like
     // merged-pr-entity's landings so it sits flat against the globe surface
