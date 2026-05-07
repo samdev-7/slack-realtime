@@ -533,8 +533,13 @@ export default class WebGLController {
              // Each dot's center in world space is (modelMatrix*instanceMatrix*0).xyz.
              // On a sphere centered at the origin that vector also points outward
              // along the surface normal, so we don't need a separate normal attr.
+             // Match the brightness range of the original PBR setup
+             // (AmbientLight 0.8 + DirectionalLight 3.0 × ndotl): on the lit
+             // side ndotl≈1 → multiplier≈3.8 → LAND × 3.8 clips to nearly
+             // white in the green/blue channels (the original "almost white"
+             // look). On the dark side ndotl=0 → multiplier=0.8 → dim LAND.
              vec3 dotCenterWorld = (modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
-             vLambert = 0.45 + 0.55 * max(0.0, dot(normalize(dotCenterWorld), uSun));`
+             vLambert = 0.8 + 3.0 * max(0.0, dot(normalize(dotCenterWorld), uSun));`
           );
       }
       const fragHead = isKiosk

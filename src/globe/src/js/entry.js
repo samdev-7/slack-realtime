@@ -521,7 +521,11 @@ class CameraDirector {
     // further inward and lower `p` so the band stays soft, not a hard ring.
     controller.haloContainer.traverse((m) => {
       const u = m.material && m.material.uniforms;
-      if (u && u.c && u.p) { u.c.value = 0.95; u.p.value = 4.0; }
+      // Slight bump from the default c=0.7/p=15 so the rim stays visible
+      // at native res, but nothing like the wide-bleed values we had when
+      // we were rendering at pixelRatio=0.6 — those filled the whole
+      // visible disc with halo and made the globe look smaller.
+      if (u && u.c && u.p) { u.c.value = 0.75; u.p.value = 12.0; }
     });
 
     // Bake the halo to a Sprite. The halo doesn't rotate or otherwise
