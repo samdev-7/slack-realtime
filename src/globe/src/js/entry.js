@@ -549,6 +549,51 @@ class CameraDirector {
     // the original ShaderMaterial sphere; only ~1ms/frame extra cost on
     // a 24-segment sphere, which is acceptable while we figure this out.
     // controller.bakeHaloToSprite();
+
+    // Wire the rotary knob to globe rotation. The knob is exposed by the
+    // kernel as `rotary@0` with EV_REL + REL_WHEEL (see /proc/bus/input/devices),
+    // so libinput translates each detent into a `wheel` event in Chromium —
+    // NOT keydown(ArrowLeft/Right) like the kiosk's xorg.conf comment claims.
+    // We listen for BOTH wheel and key events so this works regardless of
+    // any future libinput mapping change. The interaction model:
+    //   - Each detent adds an angular impulse (BUMP) to a velocity that
+    //     stacks up to ±CAP.
+    //   - Velocity decays exponentially with time constant ~0.4s, so
+    //     after the user stops turning the globe smoothly settles back
+    //     into its baseline auto-rotation. No abrupt stops.
+    //   - The impulse is ADDED to the existing Controls auto-rotation
+    //     (rotationSpeed = 0.05 rad/s); we don't replace it. Globe never
+    //     fully stops, just gets temporarily nudged.
+    let knobV = 0; // extra angular velocity, rad/s
+    const KNOB_BUMP = 1.2;
+    const KNOB_CAP = 4.0;
+    const KNOB_DECAY_TAU = 0.4; // seconds; e^(-dt/TAU) per frame
+    const bumpRight = () => { knobV = Math.min(KNOB_CAP, knobV + KNOB_BUMP); };
+    const bumpLeft  = () => { knobV = Math.max(-KNOB_CAP, knobV - KNOB_BUMP); };
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowRight') bumpRight();
+      else if (e.key === 'ArrowLeft') bumpLeft();
+    });
+    window.addEventListener('wheel', (e) => {
+      // Encoder-as-wheel: each detent fires once with non-zero delta. We
+      // care about direction only, not magnitude — different libinput
+      // configs report different delta values for the same detent.
+      const d = e.deltaY || e.deltaX;
+      if (d > 0) bumpRight();
+      else if (d < 0) bumpLeft();
+    }, { passive: true });
+
+    let knobLastT = performance.now();
+    (function knobTick() {
+      const now = performance.now();
+      const dt = Math.min(0.1, (now - knobLastT) / 1000);
+      knobLastT = now;
+      if (Math.abs(knobV) > 1e-4) {
+        controller.parentContainer.rotation.y += knobV * dt;
+        knobV *= Math.exp(-dt / KNOB_DECAY_TAU);
+      }
+      requestAnimationFrame(knobTick);
+    })();
   }
 
   // `?thing-debug=true` — pin a small FPS graph in the top-left corner.
