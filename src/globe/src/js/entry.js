@@ -423,6 +423,36 @@ class CameraDirector {
   controller.indexIncrementSpeed = 0;
   if (merged) merged.DATA_INCREMENT_SPEED = 0;
 
+  // Car Thing kiosk mode (`?thing=true`). The Spotify Car Thing runs
+  // Chromium at 800×480 with software-only WebGL (Mali GPU isn't wired up
+  // under X11). Three tweaks make the globe usable:
+  //   1. Widen the camera FOV from 20° → 30°. tan(15°)/tan(10°) ≈ 1.52, so
+  //      everything in-scene shrinks to ~66% of its default size at the
+  //      same camera distance. The default framing is too tight for 480px
+  //      tall — arc lofts (which reach 3-4× globe radius above the surface)
+  //      run off the top of the viewport.
+  //   2. Lock the LOWEST render preset. updateRenderQuality() caps DPR to
+  //      1 and thins out world dots; the FPS-watcher would otherwise step
+  //      through tiers to get here, and we know in advance that software
+  //      WebGL on a Cortex-A53 won't hit 60fps. Pin
+  //      fpsWarningThreshold = Infinity so a momentary stutter can't drop
+  //      us below LOWEST and trigger initPerformanceEmergency().
+  //   3. After LOWEST applies its smaller dot size (0.1), bump it back up
+  //      to 0.18 and rebuild the world geometry. The row count stays at
+  //      whatever LOWEST set it to so spacing is unchanged — only each
+  //      dot's radius grows. Small dots disappear at the Car Thing's pixel
+  //      density; bigger ones stay legible.
+  if (new URLSearchParams(location.search).get('thing') === 'true') {
+    controller.camera.fov = 30;
+    controller.camera.updateProjectionMatrix();
+    controller.renderQuality = 1;
+    controller.updateRenderQuality();
+    controller.worldDotSize = 0.18;
+    controller.resetWorldMap();
+    controller.buildWorldGeometry();
+    controller.fpsWarningThreshold = Infinity;
+  }
+
   const director = new CameraDirector(controller);
 
   // Spawn one pink arc — the camera director pans the globe first, then
