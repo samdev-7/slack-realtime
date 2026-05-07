@@ -545,7 +545,7 @@ export default class WebGLController {
         shader.vertexShader = shader.vertexShader
           .replace(
             '#include <common>',
-            '#include <common>\nuniform vec3 uSunBlueWhite;\nuniform vec3 uSunBlueAccent;\nuniform vec3 uSunPink;\nuniform vec3 uShadowPoint;\nuniform float uShadowDist;\nvarying vec3 vColorMul;'
+            '#include <common>\nuniform vec3 uSunBlueWhite;\nuniform vec3 uSunBlueAccent;\nuniform vec3 uSunPink;\nuniform vec3 uShadowPoint;\nuniform float uShadowDist;\nvarying vec3 vColorMul;\nvarying float vWorldZ;'
           )
           .replace(
             '#include <project_vertex>',
@@ -568,25 +568,38 @@ export default class WebGLController {
              vec3 contribPink = vec3(1.0, 0.55, 0.8) * (ndotlPK * 0.4);
              // Shadow dampening: dots near the fixed shadow point dim toward
              // 0.5× their lit color (small dots already get alpha-faded by
-             // the depth hook below; a 0.5 floor keeps shadow continents
+             // the world-Z hook below; a 0.5 floor keeps shadow continents
              // readable instead of vanishing).
              float distToShadow = distance(dotCenterWorld, uShadowPoint);
              float shadowMul = mix(0.5, 1.0, smoothstep(0.0, uShadowDist, distToShadow));
-             vColorMul = (ambient + contribBW + contribBA + contribPink) * shadowMul;`
+             vColorMul = (ambient + contribBW + contribBA + contribPink) * shadowMul;
+             // World-Z used by the fragment shader to fade dots past the
+             // visible silhouette. The original used gl_FragCoord.z with a
+             // hand-tuned threshold, but that threshold shifts whenever
+             // camera.near changes (we lowered near for the spike-clip
+             // fix). World-Z is independent of near/far.
+             vWorldZ = dotCenterWorld.z;`
           );
       }
       const fragHead = isKiosk
-        ? '#include <common>\nvarying vec3 vColorMul;'
+        ? '#include <common>\nvarying vec3 vColorMul;\nvarying float vWorldZ;'
         : '#include <common>';
       const lambertMul = isKiosk ? ' * vColorMul' : '';
+      const fragReplacement = isKiosk
+        ? `gl_FragColor = vec4( outgoingLight${lambertMul}, diffuseColor.a );
+           // Soft fade across the silhouette: full alpha for dots ahead of
+           // the equator (vWorldZ > +3), zero alpha behind (vWorldZ < -3),
+           // smooth crossover in between. Independent of camera.near.
+           gl_FragColor.a *= smoothstep(-3.0, 3.0, vWorldZ);`
+        : `gl_FragColor = vec4( outgoingLight, diffuseColor.a );
+           if (gl_FragCoord.z > 0.51) {
+             gl_FragColor.a = 1.0 + ( 0.51 - gl_FragCoord.z ) * 17.0;
+           }`;
       shader.fragmentShader = shader.fragmentShader
         .replace('#include <common>', fragHead)
         .replace(
           'gl_FragColor = vec4( outgoingLight, diffuseColor.a );',
-          `gl_FragColor = vec4( outgoingLight${lambertMul}, diffuseColor.a );
-           if (gl_FragCoord.z > 0.51) {
-             gl_FragColor.a = 1.0 + ( 0.51 - gl_FragCoord.z ) * 17.0;
-           }`
+          fragReplacement
         );
     };
     const dotMesh = new InstancedMesh(geometry, dotMaterial, dotData.length);

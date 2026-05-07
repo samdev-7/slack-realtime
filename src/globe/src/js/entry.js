@@ -592,7 +592,10 @@ class CameraDirector {
       const dt = Math.min(0.1, (now - knobLastT) / 1000);
       knobLastT = now;
       if (Math.abs(knobV) > 1e-4) {
-        controller.parentContainer.rotation.y += knobV * dt;
+        // Reversed: turning the knob "right" should rotate the globe to
+        // expose what's currently on the right edge — i.e. the camera
+        // appears to pan right, which means the WORLD rotates left.
+        controller.parentContainer.rotation.y -= knobV * dt;
         knobV *= Math.exp(-dt / KNOB_DECAY_TAU);
       }
       requestAnimationFrame(knobTick);

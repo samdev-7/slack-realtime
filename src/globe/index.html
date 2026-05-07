@@ -19,6 +19,23 @@
       content="Real time Slack activity on a globe."
     />
     <style>
+      /* SF Pro Display, copied from samdev-7/samthing-dash. The kiosk clock
+         (`?thing=true`, toggled by the `m` button) uses this; nothing else
+         on the page does. Only loading Bold (used) + Regular (fallback). */
+      @font-face {
+        font-family: "SF Pro Display";
+        src: url("fonts/SF-Pro-Display-Bold.woff2") format("woff2");
+        font-weight: 700;
+        font-style: normal;
+        font-display: swap;
+      }
+      @font-face {
+        font-family: "SF Pro Display";
+        src: url("fonts/SF-Pro-Display-Regular.woff2") format("woff2");
+        font-weight: 400;
+        font-style: normal;
+        font-display: swap;
+      }
       html,
       body {
         margin: 0;
@@ -27,6 +44,39 @@
         color: #fff;
         font-family: ui-sans-serif, system-ui, sans-serif;
         height: 100%;
+      }
+      /* Clock overlay for the Car Thing kiosk. Centered, big, white,
+         text-shadow so it stays readable over the globe's lit areas. */
+      #clock {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -55%);
+        font-family: "SF Pro Display", -apple-system, BlinkMacSystemFont,
+          sans-serif;
+        font-weight: 700;
+        font-size: 8rem;
+        line-height: 1;
+        letter-spacing: 0.02em;
+        color: #fff;
+        text-shadow: 0 0 24px rgba(0, 0, 0, 0.85),
+          0 0 48px rgba(0, 0, 0, 0.6);
+        z-index: 50;
+        pointer-events: none;
+        user-select: none;
+        white-space: nowrap;
+      }
+      #clock.hidden {
+        display: none;
+      }
+      #clock .colon {
+        display: inline-block;
+        transform: translateY(-0.18em);
+      }
+      #clock .ampm {
+        font-size: 0.5em;
+        margin-left: 0.15em;
+        vertical-align: 0.55em;
       }
       body {
         display: grid;
@@ -127,6 +177,13 @@
     <div class="label">
       Hack Club Slack Activity - by @samliu with code from GitHub's Globe
     </div>
+    <div id="clock" class="hidden">
+      <span id="clock-hours">12</span><span id="clock-colon" class="colon"
+        >:</span
+      ><span id="clock-minutes">00</span><span id="clock-ampm" class="ampm"
+        >AM</span
+      >
+    </div>
     <div class="js-webgl-globe-data">
       <div class="js-webgl-globe"></div>
     </div>
@@ -164,6 +221,39 @@
       if (thing) {
         document.querySelector(".label").style.display = "none";
         document.body.style.background = "#000";
+
+        // Clock overlay (ported from samdev-7/samthing-dash). Updates each
+        // second; the colon blinks on even seconds. Toggled by the `m`
+        // button (top edge of the device — keycode 50 → 'm' per the
+        // superbird kiosk's mod_buttons.py mapping). Default visible.
+        const clock = document.getElementById("clock");
+        const hoursEl = document.getElementById("clock-hours");
+        const minutesEl = document.getElementById("clock-minutes");
+        const colonEl = document.getElementById("clock-colon");
+        const ampmEl = document.getElementById("clock-ampm");
+        clock.classList.remove("hidden");
+        function tickClock() {
+          const parts = new Intl.DateTimeFormat("en-US", {
+            timeZone: "America/New_York",
+            hour: "numeric",
+            minute: "2-digit",
+            second: "numeric",
+            hour12: true,
+          }).formatToParts(new Date());
+          const get = (t) => parts.find((p) => p.type === t).value;
+          hoursEl.textContent = get("hour");
+          minutesEl.textContent = get("minute");
+          ampmEl.textContent = get("dayPeriod");
+          colonEl.style.visibility =
+            Number(get("second")) % 2 === 0 ? "visible" : "hidden";
+        }
+        tickClock();
+        setInterval(tickClock, 1000);
+        window.addEventListener("keydown", (e) => {
+          if (e.key === "m" || e.key === "M") {
+            clock.classList.toggle("hidden");
+          }
+        });
       }
       document.addEventListener("globeReady", () => {
         if (debug) document.getElementById("controls").hidden = false;
