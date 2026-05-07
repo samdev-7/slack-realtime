@@ -309,6 +309,17 @@
           return true;
         }
 
+        // Proactive sweep: isActive() only prunes a key when it's re-checked,
+        // so a one-shot unique key would otherwise live forever. At sustained
+        // workspace volume we'd accumulate stale entries indefinitely. Run a
+        // full sweep every 30s — cheap (just a Map walk) and bounds memory to
+        // ~one window's worth of distinct keys regardless of uptime.
+        setInterval(() => {
+          const now = performance.now();
+          for (const [k, exp] of activeArcs) if (exp <= now) activeArcs.delete(k);
+          for (const [k, exp] of activeSpikes) if (exp <= now) activeSpikes.delete(k);
+        }, 30000);
+
         function handleStreamer(msg) {
           const from = { lat: msg.from[0], lon: msg.from[1] };
           const fresh = [];
@@ -317,7 +328,6 @@
             const key = arcKey(msg.from, t);
             if (isActive(activeArcs, key)) {
               dropped++;
-              console.log("[cooldown] arc skip", key);
               continue;
             }
             activeArcs.set(key, performance.now() + ARC_TTL_MS);
@@ -336,7 +346,6 @@
         function handleSpot(msg) {
           const key = coordKey(msg.at);
           if (isActive(activeSpikes, key)) {
-            console.log("[cooldown] spike skip", key);
             if (debug)
               showToast(`spot skip ${fmt(msg.at[0])},${fmt(msg.at[1])}`);
             return;

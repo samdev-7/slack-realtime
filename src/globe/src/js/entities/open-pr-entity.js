@@ -201,6 +201,17 @@ export default class OpenPrEntity {
     // (fadingLandingMeshFromMesh on line ~325 of merged-pr-entity.js).
     this._pingRingGeom = new RingBufferGeometry(1.55, 1.8, 16);
     this._spikeColor = openPrColor;
+
+    // Scratch objects reused across _tickSpawnedSpikes frames. The matrix is
+    // produced via Group.updateMatrix() (it's the only path that accepts the
+    // lookAt + scale combo), and the zeroDummy is for resetting completed
+    // slots back to a zero-scale matrix. Hoisted here so we don't allocate
+    // per-frame at 15fps × N concurrent spikes.
+    this._tickDummy = new Group();
+    this._tickTmpVec = new Vector3();
+    this._tickZeroDummy = new Group();
+    this._tickZeroDummy.scale.set(0, 0, 0);
+    this._tickZeroDummy.updateMatrix();
   }
 
   // Queue a spike at (lat, lon) — picks a round-robin InstancedMesh slot,
@@ -280,9 +291,9 @@ export default class OpenPrEntity {
     const { radius = 1 } = this.props;
     const now = performance.now();
     const ease = (x) => (x < 0.5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2);
-    const dummy = new Group();
+    const dummy = this._tickDummy;
     const ppos = this.particles.geometry.getAttribute('position');
-    const tmpVec = new Vector3();
+    const tmpVec = this._tickTmpVec;
     let dirty = false;
     for (let i = this._spawnedSpikes.length - 1; i >= 0; i--) {
       const s = this._spawnedSpikes[i];
@@ -328,11 +339,8 @@ export default class OpenPrEntity {
       dirty = true;
       if (t >= TOTAL) {
         // Reset to fully-zeroed slot so future round-robin reuse starts clean.
-        const zeroDummy = new Group();
-        zeroDummy.scale.set(0, 0, 0);
-        zeroDummy.updateMatrix();
-        this.spikes.setMatrixAt(s.slot, zeroDummy.matrix);
-        this.spikeIntersects.setMatrixAt(s.slot, zeroDummy.matrix);
+        this.spikes.setMatrixAt(s.slot, this._tickZeroDummy.matrix);
+        this.spikeIntersects.setMatrixAt(s.slot, this._tickZeroDummy.matrix);
         ppos.setXYZ(s.slot, 0, 0, 0);
         if (s.ring) {
           this.mesh.remove(s.ring);

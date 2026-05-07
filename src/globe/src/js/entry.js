@@ -319,31 +319,11 @@ class CameraDirector {
     // Suppress controls' auto-rotation while we own rotation.y.
     this.controls.autoRotationSpeedScalar = 0;
     this.controls.autoRotationSpeedScalarTarget = 0;
-
-    console.log('[schedule] ' + JSON.stringify({
-      start: opts.start,
-      ends: opts.ends,
-      fromY: +fromY.toFixed(3),
-      timeline: timeline.map(s => ({ s: s.start, e: s.end, fY: +s.fromY.toFixed(3), tY: +s.toY.toFixed(3) })),
-      pX: +this.parent.rotation.x.toFixed(3),
-      pY: +this.parent.rotation.y.toFixed(3),
-    }));
   }
 
   _tick() {
     if (!this.script) return;
     const t = performance.now() - this.script.startTime;
-    if (this._debugFrames === undefined) this._debugFrames = 0;
-    if (this._debugFrames < 25 || this._debugFrames % 30 === 0) {
-      // eslint-disable-next-line no-console
-      console.log('[tick] ' + JSON.stringify({
-        t: Math.round(t),
-        rotY_in: +this.container.rotation.y.toFixed(3),
-        m_y: +Math.atan2(this.container.matrix.elements[8], this.container.matrix.elements[10]).toFixed(3),
-        autoScalar: +this.controls.autoRotationSpeedScalar.toFixed(3),
-      }));
-    }
-    this._debugFrames++;
 
     // 0.3s mark: the actual spike/arc spawn fires.
     if (!this.script.spawned && t >= this.script.spawnAt) {
@@ -360,13 +340,8 @@ class CameraDirector {
       const segT = (t - seg.start) / (seg.end - seg.start);
       const eased = easeInOut(Math.max(0, Math.min(1, segT)));
       const newY = seg.fromY + (seg.toY - seg.fromY) * eased;
-      const prevY = this.container.rotation.y;
       this._setRotationY(newY);
       this.controls.autoRotationSpeedScalar = 0;
-      if (this._debugFrames < 25) {
-        // eslint-disable-next-line no-console
-        console.log('[set] ' + JSON.stringify({ t: Math.round(t), prevY: +prevY.toFixed(3), newY: +newY.toFixed(3), seg: seg.start + '-' + seg.end }));
-      }
     } else if (t < this.script.totalEnd + this.script.returnDuration) {
       // Return phase: fade the auto-rotation scalar from 0 → 1 with the
       // same ease-in-out so the resume feels continuous with the hold.
