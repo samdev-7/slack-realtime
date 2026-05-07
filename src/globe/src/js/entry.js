@@ -467,6 +467,13 @@ class CameraDirector {
   //      meshes per tick is pure waste here.
   if (isThing) {
     controller.camera.fov = 30;
+    // Pull the near plane closer (170 → 150). With kiosk's containerScale
+    // 1.77, the globe surface lands at world z ≈ 44.25 and spike tips
+    // reach z ≈ 50.4 at the front-center — that's past the default near
+    // plane (220 - 170 = 50), so the upper half of any centered spike
+    // gets clipped while the ping ring at the surface is fine. Moving
+    // the near plane to z = 70 (220 - 150) gives plenty of headroom.
+    controller.camera.near = 150;
     controller.camera.updateProjectionMatrix();
 
     controller.renderQuality = 1;
