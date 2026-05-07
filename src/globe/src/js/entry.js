@@ -519,10 +519,16 @@ class CameraDirector {
     // default rim is only a couple of fragments wide and gets washed out
     // by the upscale to 800×480. Pull `c` toward 1.0 to push the glow
     // further inward and lower `p` so the band stays soft, not a hard ring.
-    // Leave halo c/p at defaults (0.7 / 15.0) — same values the live web
-    // version uses. Earlier we widened them to compensate for sub-native
-    // render scale, but that was bleeding the glow inward into the globe
-    // body and making the sphere look smaller than the halo.
+    // Default c=0.7/p=15 is tuned for the live web's 1470×745 viewport,
+    // where the rim glow falloff covers ~30 pixels and reads as a clear
+    // ring. On the Car Thing's 800×480 the same falloff covers ~15 pixels
+    // and barely registers. Push c slightly higher and p lower to widen
+    // the visible band — but stay well clear of c=0.95/p=4, which bled
+    // the glow several globe-radii inward and made the body look small.
+    controller.haloContainer.traverse((m) => {
+      const u = m.material && m.material.uniforms;
+      if (u && u.c && u.p) { u.c.value = 0.82; u.p.value = 9.0; }
+    });
 
     // Halo bake disabled while debugging visual mismatch. With it enabled
     // the halo appears much thicker on the Car Thing than the live web
