@@ -9,3 +9,6 @@ A real-time globe visualization of Slack activity. It receives data using undocu
 > For privacy reasons, only publicly available activity is tracked.
 
 ![screenshot of it in action](image.png)
+
+Pink arcs -> mentions, reactions, thread messages
+Blue spikes -> individual messages without a clear destination
