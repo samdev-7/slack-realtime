@@ -83,6 +83,12 @@ export default class MergedPrEntity {
       this.addArc(gop, gm, i);
     }
 
+    // Cycle bound: visibleIndex wraps within the seed data only. spawnArc()
+    // appends entries past this index for one-shot playback — excluding them
+    // from the cycle keeps live events from accumulating in the replay loop.
+    this._cycleLength = this.lineMeshes.length;
+    this._oneShotIndices = new Set();
+
     const { width, height } = parentNode.getBoundingClientRect();
   }
 
@@ -170,6 +176,7 @@ export default class MergedPrEntity {
   spawnArc(gop, gm) {
     const idx = this.addArc(gop, gm);
     if (idx < 0) return -1;
+    this._oneShotIndices.add(idx);
     this.isAnimating.push(this.animatedObjectForIndex(idx));
     return idx;
   }
@@ -191,11 +198,13 @@ export default class MergedPrEntity {
 
   update(delta = 0.01, visibleIndex) {
     let newVisibleIndex = parseInt(this.visibleIndex + delta * this.DATA_INCREMENT_SPEED);
-    if (newVisibleIndex >= this.lineMeshes.length) {
+    if (newVisibleIndex >= this._cycleLength) {
       newVisibleIndex = 0;
       this.visibleIndex = 0;
     }
-    if (newVisibleIndex > this.visibleIndex) this.isAnimating.push(this.animatedObjectForIndex(newVisibleIndex));
+    if (newVisibleIndex > this.visibleIndex && this.lineMeshes[newVisibleIndex]) {
+      this.isAnimating.push(this.animatedObjectForIndex(newVisibleIndex));
+    }
 
     let continueAnimating = [];
     let continueAnimatingLandingOut = [];
@@ -253,6 +262,19 @@ export default class MergedPrEntity {
     animated.lineHit.geometry.setDrawRange(0, 0);
     this.mesh.remove(animated.line);
     this.mesh.remove(animated.lineHit);
+
+    // One-shot (spawnArc) entries own a unique TubeBufferGeometry per arc
+    // and are never replayed — release the GPU buffers and null the slot
+    // so memory stays bounded across long uptimes. Materials are shared
+    // (this.tubeMaterial / this.hiddenMaterial) so we don't dispose them.
+    if (animated.oneShot) {
+      animated.line.geometry.dispose();
+      animated.lineHit.geometry.dispose();
+      this.lineMeshes[animated.index] = null;
+      this.lineHitMeshes[animated.index] = null;
+      this.landings[animated.index] = null;
+    }
+
     animated.line = null;
     animated.lineHit = null;
 
@@ -318,7 +340,9 @@ export default class MergedPrEntity {
       line: line,
       lineHit: lineHit,
       dot: landing,
-      dotFade: dotFade
+      dotFade: dotFade,
+      index: index,
+      oneShot: this._oneShotIndices.has(index)
     }
   }
 
