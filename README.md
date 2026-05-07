@@ -12,3 +12,4 @@ A real-time globe visualization of Slack activity. It receives data using undocu
 
 Pink arcs -> mentions, reactions, thread messages
 Blue spikes -> individual messages without a clear destination
+Flag -> Hack Club HQ in Burlington, VT!
