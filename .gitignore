@@ -1,3 +1,5 @@
 node_modules/
 src/globe/dist/
-*.log.claude/
+*.log
+.claude/
+og-source.png
