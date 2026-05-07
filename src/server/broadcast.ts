@@ -1,5 +1,5 @@
 import { WebSocketServer, WebSocket } from "ws";
-import type { IncomingMessage } from "node:http";
+import type { IncomingMessage, Server as HttpServer } from "node:http";
 
 const HEARTBEAT_MS = 30_000;
 const MAX_BUFFERED_BYTES = 1024 * 1024; // 1 MB per client; terminate beyond that
@@ -14,12 +14,14 @@ export interface Broadcaster {
 }
 
 export function startWsServer(opts: {
-  host: string;
-  port: number;
+  server: HttpServer;
   log: Logger;
 }): Broadcaster {
-  const { host, port, log } = opts;
-  const wss = new WebSocketServer({ host, port });
+  const { server, log } = opts;
+  // Attach to the existing http server so HTTP (static globe assets) and WS
+  // share the same port — required for Coolify's reverse proxy where only
+  // 80/443 is reachable.
+  const wss = new WebSocketServer({ server });
 
   let nextId = 1;
   const clients = new Map<
@@ -27,9 +29,6 @@ export function startWsServer(opts: {
     { ws: WebSocket; remote: string; alive: boolean }
   >();
 
-  wss.on("listening", () =>
-    log("INFO", `ws server listening on ws://${host}:${port}/`),
-  );
   wss.on("error", (e) => log("WARN", `ws server error: ${e.message}`));
 
   wss.on("connection", (ws: WebSocket, req: IncomingMessage) => {

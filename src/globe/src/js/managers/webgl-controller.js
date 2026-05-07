@@ -425,8 +425,10 @@ export default class WebGLController {
   }
 
   addArcticCodeVault() {
-    const lat = 78.14;
-    const long = 15.26;
+    // Originally pinned at Svalbard (78.14, 15.26) for github's Arctic
+    // Code Vault. Re-pinned to Hack Club HQ in Burlington, VT.
+    const lat = 44.473958723783284;
+    const long = -73.218213388791;
     const height = 1.5;
     const radius = 0.075;
     const geometry = new CylinderBufferGeometry(radius, radius, height, 8);

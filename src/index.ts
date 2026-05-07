@@ -1,10 +1,14 @@
 import { createWriteStream } from "node:fs";
+import { createServer } from "node:http";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { dirname, resolve as resolvePath } from "node:path";
 import WebSocket from "ws";
 import { extractCreds } from "./extract-creds.js";
 import { loadTzCoords, tzToLatLng } from "./tz-coords.js";
 import { UserCache, ThreadAuthorCache, type CachedUser } from "./caches.js";
 import { startWsServer } from "./server/broadcast.js";
+import { staticHandler } from "./server/static.js";
 
 const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
 // Workspace HTML is fetched once on startup; the embedded api_token is the
@@ -133,11 +137,35 @@ function log(level: keyof typeof LEVEL_MIN, ...args: any[]) {
   }
 }
 
+// HTTP server: serves the globe HTML/assets statically AND hosts the WS
+// upgrades on the same port (Coolify's reverse proxy only exposes 80/443,
+// so HTTP and WS need to share an origin in deployment).
+const here = dirname(fileURLToPath(import.meta.url));
+// Prefer GLOBE_DIR env (deployment can override), fall back to ../src/globe
+// relative to this file at build/run time.
+const GLOBE_DIR = process.env.GLOBE_DIR ?? resolvePath(here, "globe");
+const serveStatic = staticHandler(GLOBE_DIR);
+const httpServer = createServer(async (req, res) => {
+  if (await serveStatic(req, res)) return;
+  res.statusCode = 404;
+  res.setHeader("Content-Type", "text/plain; charset=utf-8");
+  res.end("not found");
+});
+httpServer.on("error", (e: any) =>
+  log("WARN", `http server error: ${e.message}`),
+);
+httpServer.listen(WS_PORT, WS_HOST, () =>
+  log(
+    "INFO",
+    `http+ws server listening on http://${WS_HOST}:${WS_PORT}/ (globeDir=${GLOBE_DIR})`,
+  ),
+);
+
 // Three sinks for emitted events:
 //   - WS broadcast: privacy-safe payload only (what real consumers see)
 //   - stdout:       privacy-safe payload (for `tail` / piping)
 //   - log file:     payload + debug block for after-the-fact inspection
-const broadcaster = startWsServer({ host: WS_HOST, port: WS_PORT, log });
+const broadcaster = startWsServer({ server: httpServer, log });
 
 function emitOut(payload: object, debug: object) {
   const ts = new Date().toISOString().slice(11, 23);
@@ -152,6 +180,7 @@ function emitOut(payload: object, debug: object) {
 async function shutdown(reason: string) {
   log("INFO", `shutting down (${reason})`);
   await broadcaster.shutdown();
+  await new Promise<void>((r) => httpServer.close(() => r()));
   logFile.end();
   process.exit(0);
 }

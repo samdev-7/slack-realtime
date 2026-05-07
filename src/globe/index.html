@@ -51,6 +51,13 @@
         gap: 0.5rem;
         z-index: 10;
       }
+      /* `.controls` above sets display: flex, which has equal specificity to
+         the user-agent's `[hidden] { display: none }` and beats it on source
+         order — so the hidden attribute on its own would be ignored. Scope
+         the hide rule back into our own stylesheet to win. */
+      .controls[hidden] {
+        display: none;
+      }
       .controls button {
         background: #161b22;
         color: #fff;
@@ -109,7 +116,7 @@
     <div class="js-webgl-globe-data">
       <div class="js-webgl-globe"></div>
     </div>
-    <div class="controls">
+    <div class="controls" id="controls" hidden>
       <button class="merged" id="spawn-arc">Spawn random arc</button>
       <button class="open" id="spawn-spike">Spawn random spike</button>
     </div>
@@ -132,7 +139,10 @@
       function fmt(n) {
         return Number(n).toFixed(2);
       }
+      const params = new URLSearchParams(location.search);
+      const debug = params.get("debug") === "true";
       document.addEventListener("globeReady", () => {
+        if (debug) document.getElementById("controls").hidden = false;
         document.getElementById("spawn-arc").addEventListener("click", () => {
           const r = window.globe.spawnRandomArc();
           if (!r) return showToast("no arc spawned");
@@ -144,6 +154,148 @@
           const r = window.globe.spawnRandomSpike();
           showToast(`spike @ ${fmt(r.lat)},${fmt(r.lon)}`);
         });
+
+        // Slack-realtime WS feed → arcs (streamer) + spikes (spot).
+        // Cooldown / dedup: if an arc with the same from/to is currently
+        // playing, skip the new one; same for spikes at the same coords.
+        // TTLs cover the longest visible lifetime per ARCHITECTURE.md
+        // (arcs ≤ ~22s, spikes 13s). Coords are rounded to 3 decimals
+        // (~111m) so any floating-point drift can't sneak past the dedup;
+        // Slack centroids are coarser than that anyway.
+        const ARC_TTL_MS = 22000;
+        const SPIKE_TTL_MS = 13000;
+        const activeArcs = new Map();   // "fLat,fLon>tLat,tLon" → expiry ms
+        const activeSpikes = new Map(); // "lat,lon" → expiry ms
+
+        function rk(n) { return Math.round(n * 1000) / 1000; }
+        function coordKey(c) { return rk(c[0]) + "," + rk(c[1]); }
+        function arcKey(from, to) { return coordKey(from) + ">" + coordKey(to); }
+
+        function isActive(map, key) {
+          const exp = map.get(key);
+          if (exp === undefined) return false;
+          if (exp <= performance.now()) { map.delete(key); return false; }
+          return true;
+        }
+
+        function handleStreamer(msg) {
+          const from = { lat: msg.from[0], lon: msg.from[1] };
+          const fresh = [];
+          let dropped = 0;
+          for (const t of msg.to) {
+            const key = arcKey(msg.from, t);
+            if (isActive(activeArcs, key)) {
+              dropped++;
+              console.log("[cooldown] arc skip", key);
+              continue;
+            }
+            activeArcs.set(key, performance.now() + ARC_TTL_MS);
+            fresh.push({ lat: t[0], lon: t[1] });
+          }
+          if (debug) {
+            const tag = `${msg.reason} ${fmt(from.lat)},${fmt(from.lon)} → ${fresh.length}` +
+              (dropped ? ` (skip ${dropped})` : "");
+            showToast(tag);
+          }
+          if (!fresh.length) return;
+          window.globe.spawnArcs(from, fresh);
+        }
+
+        function handleSpot(msg) {
+          const key = coordKey(msg.at);
+          if (isActive(activeSpikes, key)) {
+            console.log("[cooldown] spike skip", key);
+            if (debug) showToast(`spot skip ${fmt(msg.at[0])},${fmt(msg.at[1])}`);
+            return;
+          }
+          activeSpikes.set(key, performance.now() + SPIKE_TTL_MS);
+          window.globe.spawnSpike({ lat: msg.at[0], lon: msg.at[1] });
+          if (debug) showToast(`spot @ ${fmt(msg.at[0])},${fmt(msg.at[1])}`);
+        }
+
+        // Reconnect with exponential backoff (1s..30s, ±25% jitter) per
+        // PROTOCOL.md. Backoff only resets after the connection has been
+        // stable for STABLE_MS — otherwise a server that accepts then
+        // immediately drops would keep us pinned at 1s forever.
+        // Default to same-origin WS so deployments work behind a TLS proxy
+        // (wss://example.com/) without any client-side config. file:// preview
+        // falls back to localhost:8787 since there's no origin to inherit.
+        const wsUrl = params.get("ws") || (
+          location.protocol === "file:" || !location.host
+            ? "ws://127.0.0.1:8787/"
+            : `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/`
+        );
+        const MIN_DELAY = 1000;
+        const MAX_DELAY = 30000;
+        const STABLE_MS = 60000;
+        let backoff = MIN_DELAY;
+        let ws = null;
+        let reconnectTimer = null;
+        let stableTimer = null;
+
+        function connect() {
+          reconnectTimer = null;
+          if (ws) return;
+          try { ws = new WebSocket(wsUrl); }
+          catch (e) { ws = null; scheduleReconnect(); return; }
+          ws.onopen = () => {
+            stableTimer = setTimeout(() => { backoff = MIN_DELAY; }, STABLE_MS);
+            if (debug) showToast("ws connected");
+          };
+          ws.onmessage = (e) => {
+            let msg; try { msg = JSON.parse(e.data); } catch { return; }
+            if (msg.type === "spot") handleSpot(msg);
+            else if (msg.type === "streamer") handleStreamer(msg);
+          };
+          ws.onclose = () => {
+            if (stableTimer) { clearTimeout(stableTimer); stableTimer = null; }
+            ws = null;
+            if (debug) showToast("ws disconnected — reconnecting");
+            scheduleReconnect();
+          };
+          ws.onerror = () => { try { ws && ws.close(); } catch {} };
+        }
+
+        function scheduleReconnect(immediate = false) {
+          if (reconnectTimer) return;            // already pending
+          if (ws) return;                        // still up; nothing to do
+          const delay = immediate
+            ? 0
+            : backoff * (0.75 + Math.random() * 0.5);
+          reconnectTimer = setTimeout(connect, delay);
+          if (!immediate) backoff = Math.min(backoff * 2, MAX_DELAY);
+        }
+
+        // Force a fresh attempt when the browser tells us the network just
+        // came back or the tab regained focus — these are strong hints that
+        // a previous failure is no longer applicable, so skip the wait.
+        window.addEventListener("online", () => {
+          if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+          backoff = MIN_DELAY;
+          if (!ws) scheduleReconnect(true);
+        });
+        document.addEventListener("visibilitychange", () => {
+          if (document.visibilityState === "visible" && !ws && !reconnectTimer) {
+            scheduleReconnect(true);
+          }
+        });
+
+        connect();
+      });
+
+      // `f` toggles fullscreen on the document element. Skip when a typeable
+      // element has focus or a modifier is held so it doesn't fight typing.
+      document.addEventListener("keydown", (e) => {
+        if (e.key !== "f" && e.key !== "F") return;
+        if (e.ctrlKey || e.metaKey || e.altKey) return;
+        const tag = e.target && e.target.tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA" || (e.target && e.target.isContentEditable)) return;
+        e.preventDefault();
+        if (document.fullscreenElement) {
+          document.exitFullscreen();
+        } else {
+          document.documentElement.requestFullscreen().catch(() => {});
+        }
       });
     </script>
   </body>
