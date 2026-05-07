@@ -204,11 +204,35 @@ function summarizeEvent(ev: any): string {
   return fields.join(" ");
 }
 
+// Try to fetch a fresh token + verify auth. Retries forever with backoff
+// so transient Slack outages or a stale cookie don't take down the http
+// server with the rest of the process — operations can replace the cookie
+// at runtime via the env, and the next attempt will pick it up.
+async function bootstrapWithRetry(api: ApiClient): Promise<{
+  teamUrl: string;
+  auth: any;
+}> {
+  let delay = 5_000;
+  while (true) {
+    try {
+      await api.refresh();
+      const auth = await api.call("https://slack.com", "auth.test");
+      const teamUrl = (auth.url as string).replace(/\/$/, "");
+      return { teamUrl, auth };
+    } catch (e: any) {
+      log(
+        "WARN",
+        `slack bootstrap failed: ${e.message}; retrying in ${Math.round(delay / 1000)}s`,
+      );
+      await new Promise((r) => setTimeout(r, delay));
+      delay = Math.min(delay * 2, 60_000);
+    }
+  }
+}
+
 (async () => {
   const api = new ApiClient(WORKSPACE_URL);
-  await api.refresh();
-  const auth = await api.call("https://slack.com", "auth.test");
-  const teamUrl = (auth.url as string).replace(/\/$/, "");
+  const { teamUrl, auth } = await bootstrapWithRetry(api);
   log(
     "INFO",
     `signed in as ${auth.user} on ${auth.team} (${teamUrl}); tz table size=${tzCoords.size}`,
@@ -551,6 +575,20 @@ function summarizeEvent(ev: any): string {
 
   await runForever();
 })().catch((e) => {
-  console.error("fatal:", e.message);
-  process.exit(1);
+  // The Slack pipeline is allowed to fail without taking down the http
+  // server hosting the globe. Log loudly; the next deploy/restart picks
+  // it up. (`bootstrapWithRetry` already loops on auth, so reaching here
+  // means something genuinely unrecoverable like a programming error.)
+  log("WARN", `slack pipeline crashed (http server still serving): ${e.message}`);
+});
+
+// Top-level safety nets: log instead of crashing the process. Coolify will
+// otherwise restart on any unhandled rejection, briefly killing the static
+// server too. Runtime errors here are already surfaced where they happen;
+// these handlers just keep the process alive.
+process.on("unhandledRejection", (reason: any) => {
+  log("WARN", `unhandledRejection: ${reason?.message ?? String(reason)}`);
+});
+process.on("uncaughtException", (e: Error) => {
+  log("WARN", `uncaughtException: ${e.message}`);
 });

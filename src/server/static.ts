@@ -59,7 +59,20 @@ export function staticHandler(rootDir: string) {
       res.end();
       return true;
     }
-    createReadStream(filePath).pipe(res);
+    // Stream the file, but defend against mid-flight read errors and client
+    // disconnects so a single bad request can't leak resources or crash the
+    // process via an unhandled stream `error` event.
+    const stream = createReadStream(filePath);
+    stream.on("error", () => {
+      if (!res.headersSent) {
+        res.statusCode = 500;
+        res.end("read error");
+      } else {
+        res.destroy();
+      }
+    });
+    res.on("close", () => stream.destroy());
+    stream.pipe(res);
     return true;
   };
 }
