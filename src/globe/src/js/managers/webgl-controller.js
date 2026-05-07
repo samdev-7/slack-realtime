@@ -191,9 +191,16 @@ export default class WebGLController {
 
     this.frontPoint = new Vector3().copy(this.parentContainer.position).add(new Vector3(0, 0, this.radius));
 
+    // Drop sphere tessellation in kiosk mode. The water/land sphere is
+    // mostly hidden behind the world-dot pattern; on the Car Thing's
+    // software CPU rasterizer the per-vertex transform cost of 55² ≈ 3k
+    // quads is more wasteful than the visual difference 24² ≈ 600 quads
+    // produces (which is none — the silhouette stays smooth because the
+    // dots cover any faceting).
+    const globeDetail = AppProps.kiosk ? 24 : 55;
     const globe = new Globe({
       radius: this.radius,
-      detail: 55,
+      detail: globeDetail,
       renderer: this.renderer,
       shadowPoint: this.shadowPoint,
       shadowDist: this.radius * 1.5,
@@ -210,7 +217,10 @@ export default class WebGLController {
     this.container.add(globe.mesh);
     this.globe = globe;
 
-    const haloGeometry = new SphereBufferGeometry(GLOBE_RADIUS, 45, 45);
+    // 45² ≈ 2k quads on the halo is overkill — the rim shading is purely
+    // fragment-shader work, the underlying mesh just needs to look round.
+    const haloSegments = AppProps.kiosk ? 24 : 45;
+    const haloGeometry = new SphereBufferGeometry(GLOBE_RADIUS, haloSegments, haloSegments);
     const haloMaterialBlue = new ShaderMaterial({
       uniforms: {
         "c":   { type: "f", value: 0.7 },

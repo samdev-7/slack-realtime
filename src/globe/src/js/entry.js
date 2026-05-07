@@ -398,6 +398,11 @@ class CameraDirector {
   const imagePath = 'images/';
   const dataPath = `${basePath}data/`;
 
+  // Parsed once and threaded through AppProps so construction-time choices
+  // (sphere segment counts in the controller) and post-init runtime tweaks
+  // (FOV, dot scale, halo uniforms further down) read the same flag.
+  const isThing = new URLSearchParams(location.search).get('thing') === 'true';
+
   const app = new WebGLHeader({
     basePath,
     imagePath,
@@ -406,6 +411,7 @@ class CameraDirector {
     globeRadius: GLOBE_RADIUS,
     lineWidth: 1.5,
     spikeRadius: 0.06,
+    kiosk: isThing,
   });
 
   try {
@@ -456,14 +462,18 @@ class CameraDirector {
   //   6. Freeze raycasting. The hover/popup pipeline isn't surfaced in
   //      the kiosk, and raycasting against thousands of arc + spike hit
   //      meshes per tick is pure waste here.
-  if (new URLSearchParams(location.search).get('thing') === 'true') {
+  if (isThing) {
     controller.camera.fov = 30;
     controller.camera.updateProjectionMatrix();
 
     controller.renderQuality = 1;
     controller.updateRenderQuality();
 
-    controller.renderer.setPixelRatio(0.6);
+    // Render at native 800×480. Sub-native (0.6) saved fragment work but
+    // visibly blurred everything — the 30fps cap below + halo/globe
+    // segment cuts (gated by AppProps.kiosk) cover the perf budget on
+    // their own, so we don't need to also drop resolution.
+    controller.renderer.setPixelRatio(1);
 
     controller.fpsTarget = 30;
     controller.fpsWarningThreshold = Infinity;
