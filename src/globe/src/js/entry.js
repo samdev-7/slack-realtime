@@ -481,6 +481,14 @@ class CameraDirector {
 
     controller.renderQuality = 1;
     controller.updateRenderQuality();
+    // updateRenderQuality() → initLowestQuality() resets
+    // indexIncrementSpeed back to VISIBLE_INCREMENT_SPEED/3 = 5, undoing
+    // the 0 we set above. visibleIndex would then drift, which breaks
+    // the spike's per-instance index override (the override writes the
+    // CURRENT visibleIndex, but the shader reads the moving uniform —
+    // distance(staticIndex, movingVisibleIndex) grows over time and
+    // discards the spike + particle). Pin it back to 0.
+    controller.indexIncrementSpeed = 0;
 
     // Render at native 800×480. Sub-native (0.6) saved fragment work but
     // visibly blurred everything — the 30fps cap below + halo/globe
