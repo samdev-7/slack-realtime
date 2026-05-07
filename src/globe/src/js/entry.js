@@ -488,7 +488,7 @@ class CameraDirector {
     // their own, so we don't need to also drop resolution.
     controller.renderer.setPixelRatio(1);
 
-    controller.fpsTarget = 30;
+    controller.fpsTarget = 15;
     controller.fpsWarningThreshold = Infinity;
 
     const K = 2;
@@ -507,11 +507,13 @@ class CameraDirector {
     // loop) keeps running.
     if (controller.controls) controller.controls.removeListeners();
 
-    // Cap the render loop at 30fps. requestAnimationFrame fires at the
-    // panel refresh (60Hz on the Car Thing); without this cap we paint
-    // every rAF, which is double the work the CPU can keep up with.
-    // 1000/30 ≈ 33.34ms per frame.
-    controller.minFrameMs = 1000 / 30;
+    // Cap the render loop at 15fps. The panel is 60Hz, but software WebGL
+    // on the Cortex-A53 is fragment-bound at ~60ms/frame, so we couldn't
+    // sustain 30fps anyway — measured rate was bouncing 15-20fps. Locking
+    // to 15 gives a steady cadence (smoother to the eye than variable
+    // 15-20) and leaves more idle time between frames for WS handling,
+    // knob input, and GC. 1000/15 ≈ 66.67ms.
+    controller.minFrameMs = 1000 / 15;
 
     // Skip the entire interaction pipeline. The kiosk has no hover UI
     // (the popup is hidden via CSS in index.html), and handleUpdate()
@@ -656,8 +658,8 @@ class CameraDirector {
       });
       ctx.stroke();
 
-      // FPS line
-      ctx.strokeStyle = fps >= 28 ? '#4f4' : fps >= 18 ? '#fc4' : '#f44';
+      // FPS line — color relative to the 15fps cap.
+      ctx.strokeStyle = fps >= 14 ? '#4f4' : fps >= 10 ? '#fc4' : '#f44';
       ctx.lineWidth = 1.5;
       ctx.beginPath();
       fpsHistory.forEach((v, i) => {
