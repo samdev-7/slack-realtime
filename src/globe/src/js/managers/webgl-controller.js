@@ -404,29 +404,6 @@ export default class WebGLController {
     const dotResolutionX = this.dotResolutionX;
     const rows = this.worldDotRows;
 
-    // Kiosk-mode "baked lighting": MeshBasicMaterial drops the per-fragment
-    // BRDF, but without any shading every dot is the same flat color and
-    // the globe loses its 3D feel. We can fake the directional component
-    // by computing dot(normal, sunDir) ONCE per dot at build time and
-    // applying it as a per-instance color tint — three.js InstancedMesh
-    // multiplies instanceColor into the diffuse automatically, so the
-    // runtime cost is zero. The "sun" sits up-and-front so the side
-    // facing the camera is brightest, matching where AmbientLight + the
-    // PBR pipeline used to land visually.
-    const sun = AppProps.kiosk
-      ? (() => {
-          const v = polarToCartesian(20, -10, 1);
-          const len = Math.hypot(v.x, v.y, v.z);
-          return { x: v.x / len, y: v.y / len, z: v.z / len };
-        })()
-      : null;
-    // `instanceColor` is multiplied INTO the material's diffuse color in
-    // the shader (`diffuse.rgb * vInstanceColor`), not used in place of
-    // it — so we store the grayscale brightness factor `k` per channel
-    // and let the multiplier produce LAND × k. Pre-multiplying by LAND
-    // here would square the color and dots come out black.
-    const dotColors = sun ? [] : null;
-
     for (let lat = -90; lat <= 90; lat += 180/rows) {
       const segmentRadius = Math.cos(Math.abs(lat) * DEG2RAD) * GLOBE_RADIUS;
       const circumference = segmentRadius * Math.PI * 2;
@@ -441,17 +418,6 @@ export default class WebGLController {
         dummyDot.lookAt(lookAt.x, lookAt.y, lookAt.z);
         dummyDot.updateMatrix();
         dotData.push(dummyDot.matrix.clone());
-
-        if (sun) {
-          // Lambert-ish: dot(normal, sun) clamped to [0.45, 1.0] so the
-          // back side never goes pitch black — the depth-fade hook below
-          // already drops alpha on the far hemisphere, so we just want
-          // a soft brightness gradient on the front.
-          const inv = 1 / this.radius;
-          const ndotl = (pos.x * inv) * sun.x + (pos.y * inv) * sun.y + (pos.z * inv) * sun.z;
-          const k = 0.45 + 0.55 * Math.max(0, ndotl);
-          dotColors.push(k, k, k);
-        }
       }
     }
 
@@ -467,23 +433,55 @@ export default class WebGLController {
     // across all dots). The depth-fade onBeforeCompile hook below still
     // works because both materials emit `outgoingLight` for the alpha
     // tweak to splice into.
-    const DotMaterial = AppProps.kiosk ? MeshBasicMaterial : MeshStandardMaterial;
+    const isKiosk = AppProps.kiosk;
+    const DotMaterial = isKiosk ? MeshBasicMaterial : MeshStandardMaterial;
     const dotMaterial = new DotMaterial({ color: COLORS.LAND, transparent: true, alphaTest: 0.02 });
-    dotMaterial.onBeforeCompile = function (shader) {
-      const fragmentShaderBefore = 'gl_FragColor = vec4( outgoingLight, diffuseColor.a );'
-      const fragmentShaderAfter = `
-        gl_FragColor = vec4( outgoingLight, diffuseColor.a );
-        if (gl_FragCoord.z > 0.51) {
-          gl_FragColor.a = 1.0 + ( 0.51 - gl_FragCoord.z ) * 17.0;
-        }
-      `
-      shader.fragmentShader = shader.fragmentShader.replace(fragmentShaderBefore, fragmentShaderAfter);
+    dotMaterial.onBeforeCompile = (shader) => {
+      // Existing depth-fade hook (alpha drops on the far hemisphere) plus,
+      // in kiosk mode, a per-vertex Lambert that fakes the directional
+      // shading we lost by dropping MeshStandardMaterial. Computing it in
+      // the VERTEX shader is essential: the dots are children of the
+      // rotating parentContainer, so we need the world-space normal at
+      // render time to keep the bright side of the globe pinned to the
+      // camera regardless of how the underlying geometry has rotated. A
+      // build-time bake (which we tried first) bakes object-space
+      // brightness — that rotates with the globe and ends up reversed
+      // after ROTATION_OFFSET is applied. The vertex cost is tiny:
+      // ~5–10 vertices per dot × a few thousand dots is negligible
+      // compared to per-fragment PBR.
+      if (isKiosk) {
+        shader.uniforms.uSun = { value: new Vector3(0, 0.3, 1).normalize() };
+        shader.vertexShader = shader.vertexShader
+          .replace(
+            '#include <common>',
+            '#include <common>\nuniform vec3 uSun;\nvarying float vLambert;'
+          )
+          .replace(
+            '#include <project_vertex>',
+            `#include <project_vertex>
+             // Each dot's center in world space is (modelMatrix*instanceMatrix*0).xyz.
+             // On a sphere centered at the origin that vector also points outward
+             // along the surface normal, so we don't need a separate normal attr.
+             vec3 dotCenterWorld = (modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+             vLambert = 0.45 + 0.55 * max(0.0, dot(normalize(dotCenterWorld), uSun));`
+          );
+      }
+      const fragHead = isKiosk
+        ? '#include <common>\nvarying float vLambert;'
+        : '#include <common>';
+      const lambertMul = isKiosk ? ' * vLambert' : '';
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', fragHead)
+        .replace(
+          'gl_FragColor = vec4( outgoingLight, diffuseColor.a );',
+          `gl_FragColor = vec4( outgoingLight${lambertMul}, diffuseColor.a );
+           if (gl_FragCoord.z > 0.51) {
+             gl_FragColor.a = 1.0 + ( 0.51 - gl_FragCoord.z ) * 17.0;
+           }`
+        );
     };
     const dotMesh = new InstancedMesh(geometry, dotMaterial, dotData.length);
     for (let i = 0; i < dotData.length; i++) dotMesh.setMatrixAt(i, dotData[i]);
-    if (dotColors) {
-      dotMesh.instanceColor = new InstancedBufferAttribute(new Float32Array(dotColors), 3);
-    }
     dotMesh.renderOrder = 3;
     this.worldMesh = dotMesh;
     this.container.add(dotMesh);

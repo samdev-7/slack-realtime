@@ -138,7 +138,9 @@ export default class OpenPrEntity {
 
     const particleMaterial = new PointsMaterial({
       alphaTest: 0.05,
-      size: 0.8,
+      // 2× the white tip-dot size in kiosk mode so spike caps stay legible
+      // at 800×480 — the default 0.8 is barely a pixel after projection.
+      size: AppProps.kiosk ? 1.6 : 0.8,
       depthWrite: false,
     });
 
