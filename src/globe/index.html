@@ -45,22 +45,26 @@
         font-family: ui-sans-serif, system-ui, sans-serif;
         height: 100%;
       }
-      /* Clock overlay for the Car Thing kiosk. Centered, big, white,
-         text-shadow so it stays readable over the globe's lit areas. */
+      /* Clock overlay for the Car Thing kiosk. Mirrors the styling from
+         samdev-7/samthing-dash exactly — only difference is the bg (globe
+         instead of solid black). Tailwind classes mapped:
+           text-9xl       → font-size: 8rem; line-height: 1;
+           font-bold      → font-weight: 700;
+           tracking-wide  → letter-spacing: 0.025em;
+           inline-block   → display: inline-block;  (on the colon)
+           -translate-y-3 → transform: translateY(-0.75rem); (on the colon) */
       #clock {
         position: fixed;
         top: 50%;
         left: 50%;
-        transform: translate(-50%, -55%);
+        transform: translate(-50%, -50%);
         font-family: "SF Pro Display", -apple-system, BlinkMacSystemFont,
           sans-serif;
         font-weight: 700;
         font-size: 8rem;
         line-height: 1;
-        letter-spacing: 0.02em;
+        letter-spacing: 0.025em;
         color: #fff;
-        text-shadow: 0 0 24px rgba(0, 0, 0, 0.85),
-          0 0 48px rgba(0, 0, 0, 0.6);
         z-index: 50;
         pointer-events: none;
         user-select: none;
@@ -71,12 +75,7 @@
       }
       #clock .colon {
         display: inline-block;
-        transform: translateY(-0.18em);
-      }
-      #clock .ampm {
-        font-size: 0.5em;
-        margin-left: 0.15em;
-        vertical-align: 0.55em;
+        transform: translateY(-0.75rem);
       }
       body {
         display: grid;
@@ -180,9 +179,7 @@
     <div id="clock" class="hidden">
       <span id="clock-hours">12</span><span id="clock-colon" class="colon"
         >:</span
-      ><span id="clock-minutes">00</span><span id="clock-ampm" class="ampm"
-        >AM</span
-      >
+      ><span id="clock-minutes">00</span> <span id="clock-ampm">AM</span>
     </div>
     <div class="js-webgl-globe-data">
       <div class="js-webgl-globe"></div>
@@ -244,16 +241,24 @@
           hoursEl.textContent = get("hour");
           minutesEl.textContent = get("minute");
           ampmEl.textContent = get("dayPeriod");
-          colonEl.style.visibility =
-            Number(get("second")) % 2 === 0 ? "visible" : "hidden";
         }
         tickClock();
         setInterval(tickClock, 1000);
-        window.addEventListener("keydown", (e) => {
-          if (e.key === "m" || e.key === "M") {
-            clock.classList.toggle("hidden");
-          }
-        });
+        // Toggle on `m` (top button → keycode 50 → 'm' per the kiosk's
+        // mod_buttons.py mapping). Use document + capture so we win
+        // regardless of focus or a competing handler. Expose
+        // window.toggleClock() too for CDP-based debugging.
+        function toggleClock() {
+          clock.classList.toggle("hidden");
+        }
+        window.toggleClock = toggleClock;
+        document.addEventListener(
+          "keydown",
+          (e) => {
+            if (e.key === "m" || e.key === "M") toggleClock();
+          },
+          true,
+        );
       }
       document.addEventListener("globeReady", () => {
         if (debug) document.getElementById("controls").hidden = false;
