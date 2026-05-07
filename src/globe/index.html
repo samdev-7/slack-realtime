@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>webgl-globe</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background: #040d21;
+        color: #fff;
+        font-family: ui-sans-serif, system-ui, sans-serif;
+        height: 100%;
+      }
+      body {
+        display: grid;
+        place-items: center;
+        overflow: hidden;
+      }
+      /* Make the canvas fill the viewport so arcs that loft well above the
+         globe surface don't get cropped at the container edge. */
+      .js-webgl-globe-data {
+        width: 100vw;
+        height: 100vh;
+      }
+      .js-webgl-globe {
+        width: 100%;
+        height: 100%;
+        position: relative;
+      }
+      .js-webgl-globe canvas {
+        width: 100% !important;
+        height: 100% !important;
+        display: block;
+      }
+      .label {
+        position: fixed;
+        top: 1rem;
+        left: 1rem;
+        opacity: 0.5;
+        font-size: 12px;
+      }
+      .controls {
+        position: fixed;
+        bottom: 1.5rem;
+        left: 50%;
+        transform: translateX(-50%);
+        display: flex;
+        gap: 0.5rem;
+        z-index: 10;
+      }
+      .controls button {
+        background: #161b22;
+        color: #fff;
+        border: 1px solid #30363d;
+        padding: 0.6rem 1rem;
+        border-radius: 6px;
+        font: inherit;
+        font-size: 13px;
+        cursor: pointer;
+        transition: background 0.1s;
+      }
+      .controls button:hover {
+        background: #21262d;
+        border-color: #8b949e;
+      }
+      .controls button.merged {
+        border-color: #f46bbe;
+        color: #f46bbe;
+      }
+      .controls button.open {
+        border-color: #2188ff;
+        color: #2188ff;
+      }
+      /* The bundled DataInfo popup ships with a placeholder "#34234 facebook/react"
+         template that flashes briefly when no PR is hovered. We don't surface PR
+         metadata in this preview, so kill the whole popup. */
+      .data-info,
+      .js-globe-popup {
+        display: none !important;
+      }
+      .toast {
+        position: fixed;
+        bottom: 5rem;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(13, 17, 23, 0.92);
+        border: 1px solid #30363d;
+        padding: 0.4rem 0.8rem;
+        border-radius: 4px;
+        font-size: 12px;
+        opacity: 0;
+        transition: opacity 0.2s;
+        pointer-events: none;
+        z-index: 10;
+        white-space: nowrap;
+      }
+      .toast.show {
+        opacity: 1;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="label">
+      Hack Club Slack Activity - by @samliu with code from GitHub's Globe
+    </div>
+    <div class="js-webgl-globe-data">
+      <div class="js-webgl-globe"></div>
+    </div>
+    <div class="controls">
+      <button class="merged" id="spawn-arc">Spawn random arc</button>
+      <button class="open" id="spawn-spike">Spawn random spike</button>
+    </div>
+    <div class="toast" id="toast"></div>
+    <script src="dist/globe.js"></script>
+    <script>
+      const toast = document.getElementById("toast");
+      let toastTimer;
+      function showToast(text) {
+        toast.textContent = text;
+        toast.classList.add("show");
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => toast.classList.remove("show"), 2500);
+      }
+      function describe(r) {
+        if (!r) return "no data";
+        const it = r.item;
+        return `#${it.pr ?? "?"} ${it.nwo ?? "?"} (${it.l ?? "?"}) — ${it.uol ?? "?"} → ${it.uml ?? "?"}`;
+      }
+      function fmt(n) {
+        return Number(n).toFixed(2);
+      }
+      document.addEventListener("globeReady", () => {
+        document.getElementById("spawn-arc").addEventListener("click", () => {
+          const r = window.globe.spawnRandomArc();
+          if (!r) return showToast("no arc spawned");
+          showToast(
+            `arc → from ${fmt(r.gop.lat)},${fmt(r.gop.lon)} to ${fmt(r.gm.lat)},${fmt(r.gm.lon)}`,
+          );
+        });
+        document.getElementById("spawn-spike").addEventListener("click", () => {
+          const r = window.globe.spawnRandomSpike();
+          showToast(`spike @ ${fmt(r.lat)},${fmt(r.lon)}`);
+        });
+      });
+    </script>
+  </body>
+</html>

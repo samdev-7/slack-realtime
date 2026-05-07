@@ -1,0 +1,25 @@
+{
+  "name": "slack-realtime",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "creds": "tsx src/extract-creds.ts",
+    "print-cookie": "tsx src/print-cookie.ts"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.5.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/node": "^22.9.0",
+    "@types/ws": "^8.5.13",
+    "esbuild": "^0.28.0",
+    "event-emitter": "^0.3.5",
+    "three": "^0.128.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}
