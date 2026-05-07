@@ -21,9 +21,12 @@ import {
   ShaderMaterial,
   SphereBufferGeometry,
   SpotLight,
+  Sprite,
+  SpriteMaterial,
   Vector2,
   Vector3,
-  WebGLRenderer
+  WebGLRenderer,
+  WebGLRenderTarget
 } from 'three/build/three.module';
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
 import {
@@ -379,6 +382,74 @@ export default class WebGLController {
     this.worldDotSize = 0.1;
     this.resetWorldMap();
     this.buildWorldGeometry();
+  }
+
+  // Render the halo's ShaderMaterial output to a texture once, then
+  // replace the rotating-shader sphere with a flat camera-facing Sprite
+  // that just samples that texture. Saves running the halo's per-vertex +
+  // per-fragment program every frame. Safe in kiosk mode because:
+  //   - haloContainer is added to `scene` directly (not to parentContainer),
+  //     so globe rotation never moves it,
+  //   - the camera is fixed (no CameraDirector pans during steady-state),
+  //   - and the halo material's only uniform is `viewVector`, which is
+  //     also fixed.
+  // The Sprite is sized to fill the camera's frustum at z=0 so its
+  // texture-space mapping matches the screen the original halo rendered to.
+  bakeHaloToSprite() {
+    if (!this.haloContainer) return;
+
+    const { width, height } = AppProps.parentNode.getBoundingClientRect();
+    const dpr = this.renderer.getPixelRatio();
+    const target = new WebGLRenderTarget(Math.floor(width * dpr), Math.floor(height * dpr));
+
+    // Hide everything except the halo subtree, render, then restore.
+    const wasVisible = new Map();
+    this.scene.traverse((obj) => {
+      if (obj === this.scene) return;
+      let p = obj;
+      let isHalo = false;
+      while (p && p !== this.scene) {
+        if (p === this.haloContainer) { isHalo = true; break; }
+        p = p.parent;
+      }
+      if (!isHalo) {
+        wasVisible.set(obj, obj.visible);
+        obj.visible = false;
+      }
+    });
+
+    const prevClearColor = this.renderer.getClearColor(new Color());
+    const prevClearAlpha = this.renderer.getClearAlpha();
+    this.renderer.setRenderTarget(target);
+    this.renderer.setClearColor(0x000000, 0);
+    this.renderer.clear(true, true, true);
+    this.renderer.render(this.scene, this.camera);
+    this.renderer.setRenderTarget(null);
+    this.renderer.setClearColor(prevClearColor, prevClearAlpha);
+
+    wasVisible.forEach((vis, obj) => { obj.visible = vis; });
+
+    // Camera-facing quad sized to the frustum at z=0. With camera at
+    // (0,0,CAMERA_Z) looking at origin and FOV=this.camera.fov, the
+    // visible vertical extent at z=0 is 2 * CAMERA_Z * tan(fov/2).
+    const fovRad = this.camera.fov * Math.PI / 180;
+    const vh = 2 * this.camera.position.z * Math.tan(fovRad / 2);
+    const vw = vh * this.camera.aspect;
+
+    const sprite = new Sprite(new SpriteMaterial({
+      map: target.texture,
+      transparent: true,
+      blending: AdditiveBlending,
+      depthTest: false,
+      depthWrite: false,
+    }));
+    sprite.scale.set(vw, vh, 1);
+    sprite.renderOrder = 0;
+    this.scene.add(sprite);
+
+    this.haloContainer.visible = false;
+    this.bakedHaloSprite = sprite;
+    this.bakedHaloTarget = target;
   }
 
   initLowestQuality() {

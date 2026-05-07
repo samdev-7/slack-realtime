@@ -523,6 +523,15 @@ class CameraDirector {
       const u = m.material && m.material.uniforms;
       if (u && u.c && u.p) { u.c.value = 0.95; u.p.value = 4.0; }
     });
+
+    // Bake the halo to a Sprite. The halo doesn't rotate or otherwise
+    // move (it's added to the scene root, not parentContainer, and the
+    // camera is fixed), so its rendered pixels are identical every frame.
+    // Replacing the ShaderMaterial sphere with a textured screen-aligned
+    // quad cuts that mesh's per-frame work to a single texture sample.
+    // Run this AFTER the c/p uniform tweak above so the bake captures
+    // the kiosk-tuned rim, not the default narrow one.
+    controller.bakeHaloToSprite();
   }
 
   const director = new CameraDirector(controller);
