@@ -402,6 +402,7 @@ class CameraDirector {
   // (sphere segment counts in the controller) and post-init runtime tweaks
   // (FOV, dot scale, halo uniforms further down) read the same flag.
   const isThing = new URLSearchParams(location.search).get('thing') === 'true';
+  const isThingDebug = new URLSearchParams(location.search).get('thing-debug') === 'true';
 
   const app = new WebGLHeader({
     basePath,
@@ -541,6 +542,81 @@ class CameraDirector {
     // the original ShaderMaterial sphere; only ~1ms/frame extra cost on
     // a 24-segment sphere, which is acceptable while we figure this out.
     // controller.bakeHaloToSprite();
+  }
+
+  // `?thing-debug=true` — pin a small FPS graph in the top-left corner.
+  // Hooks renderer.render directly so it counts ACTUAL paints, not rAF
+  // callbacks (the throttle in update() returns early without rendering
+  // when minFrameMs hasn't elapsed, so rAF rate ≠ render rate). Buffer
+  // is "timestamps within the last 1s", and its length at any instant
+  // IS the current FPS. Sampled at 100ms into a rolling history.
+  if (isThingDebug) {
+    const cv = document.createElement('canvas');
+    cv.width = 200;
+    cv.height = 64;
+    cv.style.cssText =
+      'position:fixed;top:6px;left:6px;z-index:1000;pointer-events:none;' +
+      'background:rgba(0,0,0,0.55);border:1px solid #444;';
+    document.body.appendChild(cv);
+    const ctx = cv.getContext('2d');
+
+    const renderTimes = []; // performance.now() of each render in last 1s
+    const fpsHistory = [];  // recent fps samples, drawn as the line
+    const HIST_LEN = 100;
+    const FPS_MAX = 60;
+
+    const origRender = controller.renderer.render.bind(controller.renderer);
+    controller.renderer.render = function (scene, camera) {
+      origRender(scene, camera);
+      const now = performance.now();
+      renderTimes.push(now);
+      while (renderTimes.length && now - renderTimes[0] > 1000) {
+        renderTimes.shift();
+      }
+    };
+
+    function draw() {
+      const now = performance.now();
+      while (renderTimes.length && now - renderTimes[0] > 1000) {
+        renderTimes.shift();
+      }
+      const fps = renderTimes.length;
+      fpsHistory.push(fps);
+      if (fpsHistory.length > HIST_LEN) fpsHistory.shift();
+
+      ctx.fillStyle = 'rgba(0,0,0,0.55)';
+      ctx.fillRect(0, 0, cv.width, cv.height);
+
+      // Reference lines at 15/30/60 fps
+      ctx.strokeStyle = '#333';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      [15, 30, 60].forEach((t) => {
+        const y = cv.height - (t / FPS_MAX) * cv.height + 0.5;
+        ctx.moveTo(0, y);
+        ctx.lineTo(cv.width, y);
+      });
+      ctx.stroke();
+
+      // FPS line
+      ctx.strokeStyle = fps >= 28 ? '#4f4' : fps >= 18 ? '#fc4' : '#f44';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      fpsHistory.forEach((v, i) => {
+        const x = (i / (HIST_LEN - 1)) * cv.width;
+        const y = cv.height - (Math.min(v, FPS_MAX) / FPS_MAX) * cv.height;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+
+      // Current fps text
+      ctx.fillStyle = '#fff';
+      ctx.font = '11px ui-monospace, monospace';
+      ctx.textBaseline = 'top';
+      ctx.fillText(`${fps} fps`, 6, 4);
+    }
+    setInterval(draw, 100);
   }
 
   const director = new CameraDirector(controller);
