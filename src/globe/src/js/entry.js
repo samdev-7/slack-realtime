@@ -519,14 +519,10 @@ class CameraDirector {
     // default rim is only a couple of fragments wide and gets washed out
     // by the upscale to 800×480. Pull `c` toward 1.0 to push the glow
     // further inward and lower `p` so the band stays soft, not a hard ring.
-    controller.haloContainer.traverse((m) => {
-      const u = m.material && m.material.uniforms;
-      // Slight bump from the default c=0.7/p=15 so the rim stays visible
-      // at native res, but nothing like the wide-bleed values we had when
-      // we were rendering at pixelRatio=0.6 — those filled the whole
-      // visible disc with halo and made the globe look smaller.
-      if (u && u.c && u.p) { u.c.value = 0.75; u.p.value = 12.0; }
-    });
+    // Leave halo c/p at defaults (0.7 / 15.0) — same values the live web
+    // version uses. Earlier we widened them to compensate for sub-native
+    // render scale, but that was bleeding the glow inward into the globe
+    // body and making the sphere look smaller than the halo.
 
     // Bake the halo to a Sprite. The halo doesn't rotate or otherwise
     // move (it's added to the scene root, not parentContainer, and the
