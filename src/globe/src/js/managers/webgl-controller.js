@@ -521,50 +521,62 @@ export default class WebGLController {
       // ~5–10 vertices per dot × a few thousand dots is negligible
       // compared to per-fragment PBR.
       if (isKiosk) {
-        // Match the original PBR + custom shader's two-stage lighting:
-        //   1. Brightness boost from a directional sun (matches the
-        //      DirectionalLight at world position (-50, 30, 10) — light
-        //      coming from upper-left, slightly forward). Range 0.8..3.8
-        //      so lit-side dots clip toward white in the green/blue
-        //      channels, matching the "almost white" lit look.
-        //   2. Shadow dampening: mix to ~5% near a fixed world-space
-        //      shadowPoint at front-right-bottom of the globe, smooth
-        //      falloff to full at distance shadowDist. This is what
-        //      pushes the lower-right of the globe toward black in the
-        //      original — without it the lighting is symmetric around
-        //      the camera and the globe loses its 3D feel.
+        // Replicate the original scene's three colored lights as three
+        // directional contributions in the vertex shader. The original had:
+        //   light0: LIGHT_BLUE SpotLight (0x2188ff), intensity 12, at
+        //           (-r*2.5, 80, -40) — strong blue from upper-left-back.
+        //   light1: 0xA9BFFF DirectionalLight, intensity 3, at (-50, 30, 10)
+        //           — soft blue-white from upper-left-front.
+        //   light3: PINK SpotLight (0xF46BBE), intensity 5, at (r, r, 2r)
+        //           — pink wash from upper-right-front.
+        // Plus white AmbientLight 0.8. Lit-side dots got blue-white from
+        // 0+1, mid-tones picked up pink from 3 → the purple shift on the
+        // right. We approximate each as a directional Lambert (skipping
+        // the SpotLight cone falloff) and sum, then dampen with the same
+        // world-space shadow distance the custom globe shader used.
+        // Output is a vec3 multiplier so the directional COLOR shifts come
+        // through, not just brightness.
         const r = this.radius;
-        shader.uniforms.uSun = { value: new Vector3(-50, 30, 10).normalize() };
+        shader.uniforms.uSunBlueWhite = { value: new Vector3(-50, 30, 10).normalize() };
+        shader.uniforms.uSunBlueAccent = { value: new Vector3(-r * 2.5, 80, -40).normalize() };
+        shader.uniforms.uSunPink = { value: new Vector3(r, r, r * 2).normalize() };
         shader.uniforms.uShadowPoint = { value: new Vector3(r * 0.7, -r * 0.3, r) };
         shader.uniforms.uShadowDist = { value: r * 1.5 };
         shader.vertexShader = shader.vertexShader
           .replace(
             '#include <common>',
-            '#include <common>\nuniform vec3 uSun;\nuniform vec3 uShadowPoint;\nuniform float uShadowDist;\nvarying float vLambert;'
+            '#include <common>\nuniform vec3 uSunBlueWhite;\nuniform vec3 uSunBlueAccent;\nuniform vec3 uSunPink;\nuniform vec3 uShadowPoint;\nuniform float uShadowDist;\nvarying vec3 vColorMul;'
           )
           .replace(
             '#include <project_vertex>',
             `#include <project_vertex>
-             // Dot center in world space is (modelMatrix*instanceMatrix*origin).xyz.
-             // For a sphere centered at the origin that also points outward along
-             // the surface normal, so we don't need a separate normal attribute.
+             // Dot center in world space; doubles as surface normal because
+             // the globe sphere is centered at origin.
              vec3 dotCenterWorld = (modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
-             float ndotl = max(0.0, dot(normalize(dotCenterWorld), uSun));
-             float boost = 0.8 + 3.0 * ndotl;
+             vec3 surfNormal = normalize(dotCenterWorld);
+             float ndotlBW = max(0.0, dot(surfNormal, uSunBlueWhite));
+             float ndotlBA = max(0.0, dot(surfNormal, uSunBlueAccent));
+             float ndotlPK = max(0.0, dot(surfNormal, uSunPink));
+             // Match the original light colors. Multipliers tuned so lit-side
+             // (left) clips to blue-white and the right-front picks up enough
+             // pink to shift LAND's blue-purple toward magenta-purple.
+             vec3 ambient     = vec3(0.55);
+             vec3 contribBW   = vec3(0.663, 0.749, 1.000) * (ndotlBW * 1.5);
+             vec3 contribBA   = vec3(0.129, 0.533, 1.000) * (ndotlBA * 1.0);
+             vec3 contribPink = vec3(0.957, 0.420, 0.745) * (ndotlPK * 0.9);
+             // Shadow dampening: dots near the fixed shadow point dim toward
+             // 0.5× their lit color (small dots already get alpha-faded by
+             // the depth hook below; a 0.5 floor keeps shadow continents
+             // readable instead of vanishing).
              float distToShadow = distance(dotCenterWorld, uShadowPoint);
-             // Shadow floor 0.35 (not 0.05 like the globe sphere uses) —
-             // dots need more residual brightness because they're small
-             // and the depth-fade alpha hook in the fragment shader
-             // already trims them at the back hemisphere. With a low
-             // floor the lower-right continents disappear entirely.
              float shadowMul = mix(0.5, 1.0, smoothstep(0.0, uShadowDist, distToShadow));
-             vLambert = boost * shadowMul;`
+             vColorMul = (ambient + contribBW + contribBA + contribPink) * shadowMul;`
           );
       }
       const fragHead = isKiosk
-        ? '#include <common>\nvarying float vLambert;'
+        ? '#include <common>\nvarying vec3 vColorMul;'
         : '#include <common>';
-      const lambertMul = isKiosk ? ' * vLambert' : '';
+      const lambertMul = isKiosk ? ' * vColorMul' : '';
       shader.fragmentShader = shader.fragmentShader
         .replace('#include <common>', fragHead)
         .replace(
