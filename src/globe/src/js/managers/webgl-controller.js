@@ -558,12 +558,12 @@ export default class WebGLController {
              float ndotlBA = max(0.0, dot(surfNormal, uSunBlueAccent));
              float ndotlPK = max(0.0, dot(surfNormal, uSunPink));
              // Lit-side dots should clip toward TRUE white, not blue-white.
-             // Bias the dominant directional contribution toward white and
-             // dial the colored accents down so they read as subtle tints
-             // rather than a saturated rainbow. LAND's base is already
-             // blue-purple, so a little pink/blue goes a long way.
-             vec3 ambient     = vec3(0.7);
-             vec3 contribBW   = vec3(1.0, 1.0, 1.0) * (ndotlBW * 2.0);
+             // LAND base is (0.227, 0.267, 0.580) — blue-heavy. To clip
+             // ALL channels to 1.0 (true white) on the lit side we need
+             // the multiplier in the R channel ≥ 1/0.227 ≈ 4.4. With
+             // ambient 0.8 + contribBW 4.0 we hit ~4.8 in R when ndotl=1.
+             vec3 ambient     = vec3(0.8);
+             vec3 contribBW   = vec3(1.0, 1.0, 1.0) * (ndotlBW * 4.0);
              vec3 contribBA   = vec3(0.55, 0.7, 1.0) * (ndotlBA * 0.35);
              vec3 contribPink = vec3(1.0, 0.55, 0.8) * (ndotlPK * 0.4);
              // Shadow dampening: dots near the fixed shadow point dim toward

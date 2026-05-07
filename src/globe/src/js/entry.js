@@ -403,6 +403,9 @@ class CameraDirector {
   // (FOV, dot scale, halo uniforms further down) read the same flag.
   const isThing = new URLSearchParams(location.search).get('thing') === 'true';
   const isThingDebug = new URLSearchParams(location.search).get('thing-debug') === 'true';
+  // Knob-driven extra rotation velocity, hoisted here so spawn helpers can
+  // peek at it and skip the camera director while the user is interacting.
+  let knobV = 0;
 
   const app = new WebGLHeader({
     basePath,
@@ -467,13 +470,13 @@ class CameraDirector {
   //      meshes per tick is pure waste here.
   if (isThing) {
     controller.camera.fov = 30;
-    // Pull the near plane closer (170 → 150). With kiosk's containerScale
-    // 1.77, the globe surface lands at world z ≈ 44.25 and spike tips
-    // reach z ≈ 50.4 at the front-center — that's past the default near
-    // plane (220 - 170 = 50), so the upper half of any centered spike
-    // gets clipped while the ping ring at the surface is fine. Moving
-    // the near plane to z = 70 (220 - 150) gives plenty of headroom.
-    controller.camera.near = 150;
+    // Pull the near plane closer. The default 170 clipped front-center
+    // spike tips at world z ≈ 50.4 (camera at z=220, near plane at
+    // z=220-near). 150 is the math-minimum; 120 leaves comfortable
+    // headroom in case I'm off on containerScale or a tip extends a
+    // little further than expected. Far plane stays at 260 so depth
+    // precision (near/far ratio) is fine.
+    controller.camera.near = 120;
     controller.camera.updateProjectionMatrix();
 
     controller.renderQuality = 1;
@@ -564,7 +567,7 @@ class CameraDirector {
     //   - The impulse is ADDED to the existing Controls auto-rotation
     //     (rotationSpeed = 0.05 rad/s); we don't replace it. Globe never
     //     fully stops, just gets temporarily nudged.
-    let knobV = 0; // extra angular velocity, rad/s
+    // (knobV is declared at outer scope so spawn helpers can read it.)
     const KNOB_BUMP = 1.2;
     const KNOB_CAP = 4.0;
     const KNOB_DECAY_TAU = 0.4; // seconds; e^(-dt/TAU) per frame
@@ -704,11 +707,24 @@ class CameraDirector {
     return { lat, lon };
   }
 
+  // While the user is actively spinning the globe with the knob, the camera
+  // director's automatic pan-to-event animations would feel like the globe
+  // is fighting them. Threshold is generous (0.4 rad/s) so a quick fling
+  // suppresses ~1s of spawns and then auto-events resume as the impulse
+  // decays back below it.
+  const knobActive = () => Math.abs(knobV) > 0.4;
+
   // Spawn arcs from a single source to one or more destinations. The director
   // pans to a fan-out-aware framing (medianEnd + visibility check) and the
   // arcs spawn together at the 0.3s mark.
   function spawnArcs(from, tos) {
     if (!merged || !tos.length) return null;
+    if (knobActive()) {
+      // Skip the camera animation entirely; spawn the arc immediately so
+      // the user's manual rotation isn't interrupted.
+      for (const to of tos) merged.spawnArc(from, to);
+      return { from, tos };
+    }
     director.schedule({
       start: from,
       ends: tos,
@@ -722,6 +738,10 @@ class CameraDirector {
   // Spawn a spike at a specific location with the camera director.
   function spawnSpike(at) {
     if (!open) return null;
+    if (knobActive()) {
+      open.spawnSpike(at.lat, at.lon);
+      return at;
+    }
     director.schedule({
       start: at,
       ends: [],
