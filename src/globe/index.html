@@ -244,10 +244,10 @@
         }
         tickClock();
         setInterval(tickClock, 1000);
-        // Toggle on `m` (top button → keycode 50 → 'm' per the kiosk's
-        // mod_buttons.py mapping). Use document + capture so we win
-        // regardless of focus or a competing handler. Expose
-        // window.toggleClock() too for CDP-based debugging.
+        // Toggle on the button next to the knob (kernel keycode 1 →
+        // libinput maps to Escape, per the kiosk's mod_buttons.py). Use
+        // document + capture so we win regardless of focus or a
+        // competing handler. Expose window.toggleClock() too for CDP.
         function toggleClock() {
           clock.classList.toggle("hidden");
         }
@@ -255,7 +255,10 @@
         document.addEventListener(
           "keydown",
           (e) => {
-            if (e.key === "m" || e.key === "M") toggleClock();
+            if (e.key === "Escape") {
+              e.preventDefault();
+              toggleClock();
+            }
           },
           true,
         );
