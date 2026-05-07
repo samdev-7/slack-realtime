@@ -567,11 +567,12 @@ export default class WebGLController {
              vec3 contribBA   = vec3(0.55, 0.7, 1.0) * (ndotlBA * 0.35);
              vec3 contribPink = vec3(1.0, 0.55, 0.8) * (ndotlPK * 0.4);
              // Shadow dampening: dots near the fixed shadow point dim toward
-             // 0.5× their lit color (small dots already get alpha-faded by
-             // the world-Z hook below; a 0.5 floor keeps shadow continents
-             // readable instead of vanishing).
+             // 0.7× their lit color. Floor was 0.5 originally, but that
+             // pulled the right-half dots noticeably darker than the left
+             // — bumping it to 0.7 keeps the directional gradient visible
+             // without the right side reading as "shadow region."
              float distToShadow = distance(dotCenterWorld, uShadowPoint);
-             float shadowMul = mix(0.5, 1.0, smoothstep(0.0, uShadowDist, distToShadow));
+             float shadowMul = mix(0.7, 1.0, smoothstep(0.0, uShadowDist, distToShadow));
              vColorMul = (ambient + contribBW + contribBA + contribPink) * shadowMul;
              // World-Z used by the fragment shader to fade dots past the
              // visible silhouette. The original used gl_FragCoord.z with a
