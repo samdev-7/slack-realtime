@@ -410,7 +410,9 @@ class CameraDirector {
     parentNode: globeContainer,
     globeRadius: GLOBE_RADIUS,
     lineWidth: 1.5,
-    spikeRadius: 0.06,
+    // 2× the spike radius in kiosk mode — at 800×480 the default 0.06
+    // spikes were a couple of pixels wide and read as noise.
+    spikeRadius: isThing ? 0.12 : 0.06,
     kiosk: isThing,
   });
 

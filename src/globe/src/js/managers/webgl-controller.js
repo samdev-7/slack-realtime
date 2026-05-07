@@ -9,6 +9,7 @@ import {
   CylinderBufferGeometry,
   DirectionalLight,
   Group,
+  InstancedBufferAttribute,
   InstancedMesh,
   Mesh,
   MeshBasicMaterial,
@@ -403,6 +404,25 @@ export default class WebGLController {
     const dotResolutionX = this.dotResolutionX;
     const rows = this.worldDotRows;
 
+    // Kiosk-mode "baked lighting": MeshBasicMaterial drops the per-fragment
+    // BRDF, but without any shading every dot is the same flat color and
+    // the globe loses its 3D feel. We can fake the directional component
+    // by computing dot(normal, sunDir) ONCE per dot at build time and
+    // applying it as a per-instance color tint — three.js InstancedMesh
+    // multiplies instanceColor into the diffuse automatically, so the
+    // runtime cost is zero. The "sun" sits up-and-front so the side
+    // facing the camera is brightest, matching where AmbientLight + the
+    // PBR pipeline used to land visually.
+    const sun = AppProps.kiosk
+      ? (() => {
+          const v = polarToCartesian(20, -10, 1);
+          const len = Math.hypot(v.x, v.y, v.z);
+          return { x: v.x / len, y: v.y / len, z: v.z / len };
+        })()
+      : null;
+    const baseColor = new Color(COLORS.LAND);
+    const dotColors = sun ? [] : null;
+
     for (let lat = -90; lat <= 90; lat += 180/rows) {
       const segmentRadius = Math.cos(Math.abs(lat) * DEG2RAD) * GLOBE_RADIUS;
       const circumference = segmentRadius * Math.PI * 2;
@@ -417,11 +437,34 @@ export default class WebGLController {
         dummyDot.lookAt(lookAt.x, lookAt.y, lookAt.z);
         dummyDot.updateMatrix();
         dotData.push(dummyDot.matrix.clone());
+
+        if (sun) {
+          // Lambert-ish: dot(normal, sun) clamped to [0.45, 1.0] so the
+          // back side never goes pitch black — the depth-fade hook below
+          // already drops alpha on the far hemisphere, so we just want
+          // a soft brightness gradient on the front.
+          const inv = 1 / this.radius;
+          const ndotl = (pos.x * inv) * sun.x + (pos.y * inv) * sun.y + (pos.z * inv) * sun.z;
+          const k = 0.45 + 0.55 * Math.max(0, ndotl);
+          dotColors.push(baseColor.r * k, baseColor.g * k, baseColor.b * k);
+        }
       }
     }
 
     const geometry = new CircleBufferGeometry(this.worldDotSize, 5);
-    const dotMaterial = new MeshStandardMaterial({ color: COLORS.LAND, metalness: 0, roughness: 0.9, transparent: true, alphaTest: 0.02 });
+    // Software WebGL on the Car Thing's CPU spends most of its frame budget
+    // in the fragment shader. The dots default to MeshStandardMaterial,
+    // which runs full PBR (BRDF, lights[], envmap, normal/view dot products)
+    // per fragment — with thousands of instanced dots that's the dominant
+    // cost. MeshBasicMaterial just outputs the diffuse color, dropping the
+    // entire lighting pipeline. Visual diff is negligible because
+    // metalness=0 + roughness=0.9 already minimized specular variation,
+    // and the kiosk scene uses a single AmbientLight (uniform multiplier
+    // across all dots). The depth-fade onBeforeCompile hook below still
+    // works because both materials emit `outgoingLight` for the alpha
+    // tweak to splice into.
+    const DotMaterial = AppProps.kiosk ? MeshBasicMaterial : MeshStandardMaterial;
+    const dotMaterial = new DotMaterial({ color: COLORS.LAND, transparent: true, alphaTest: 0.02 });
     dotMaterial.onBeforeCompile = function (shader) {
       const fragmentShaderBefore = 'gl_FragColor = vec4( outgoingLight, diffuseColor.a );'
       const fragmentShaderAfter = `
@@ -434,6 +477,9 @@ export default class WebGLController {
     };
     const dotMesh = new InstancedMesh(geometry, dotMaterial, dotData.length);
     for (let i = 0; i < dotData.length; i++) dotMesh.setMatrixAt(i, dotData[i]);
+    if (dotColors) {
+      dotMesh.instanceColor = new InstancedBufferAttribute(new Float32Array(dotColors), 3);
+    }
     dotMesh.renderOrder = 3;
     this.worldMesh = dotMesh;
     this.container.add(dotMesh);

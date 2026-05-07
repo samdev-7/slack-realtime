@@ -1,4 +1,4 @@
-import { Mesh, SphereBufferGeometry, Group, FrontSide, Vector3, Color, MeshStandardMaterial } from 'three/build/three.module';
+import { Mesh, SphereBufferGeometry, Group, FrontSide, Vector3, Color, MeshStandardMaterial, MeshBasicMaterial } from 'three/build/three.module';
 import vert from '../../glsl/globe-standard.vert';
 import frag from '../../glsl/globe-standard.frag';
 
@@ -26,33 +26,43 @@ export default class Globe {
 
     const geometry = new SphereBufferGeometry(radius, detail, detail);
 
-    const materialFill = new MeshStandardMaterial({
-      color: waterColor,
-      metalness: 0,
-      roughness: 0.9,
-    });
+    // Kiosk path skips the custom shader entirely. The water/land sphere
+    // is hidden behind the dot pattern at 800×480 — the gradient
+    // highlights and shadow falloff aren't perceptible there, and the
+    // PBR + custom-shader pipeline is the most expensive single fragment
+    // program in the scene. Plain MeshBasicMaterial outputs the water
+    // color directly, no lighting math.
+    const materialFill = this.props.kiosk
+      ? new MeshBasicMaterial({ color: waterColor })
+      : new MeshStandardMaterial({
+          color: waterColor,
+          metalness: 0,
+          roughness: 0.9,
+        });
 
     this.uniforms = [];
 
-    materialFill.onBeforeCompile = (shader) => {
-      shader.uniforms.shadowDist = { value: shadowDist };
-      shader.uniforms.highlightDist = { value: highlightDist };
-      shader.uniforms.shadowPoint = { value: new Vector3().copy(shadowPoint) };
-      shader.uniforms.highlightPoint = { value: new Vector3().copy(highlightPoint) };
-      shader.uniforms.frontPoint = { value: new Vector3().copy(frontPoint) };
-      shader.uniforms.highlightColor = { value: new Color(highlightColor) };
-      shader.uniforms.frontHighlightColor = { value: new Color(frontHighlightColor) };
-      shader.vertexShader = vert;
-      shader.fragmentShader = frag;
-      this.uniforms.push(shader.uniforms);
-    };
+    if (!this.props.kiosk) {
+      materialFill.onBeforeCompile = (shader) => {
+        shader.uniforms.shadowDist = { value: shadowDist };
+        shader.uniforms.highlightDist = { value: highlightDist };
+        shader.uniforms.shadowPoint = { value: new Vector3().copy(shadowPoint) };
+        shader.uniforms.highlightPoint = { value: new Vector3().copy(highlightPoint) };
+        shader.uniforms.frontPoint = { value: new Vector3().copy(frontPoint) };
+        shader.uniforms.highlightColor = { value: new Color(highlightColor) };
+        shader.uniforms.frontHighlightColor = { value: new Color(frontHighlightColor) };
+        shader.vertexShader = vert;
+        shader.fragmentShader = frag;
+        this.uniforms.push(shader.uniforms);
+      };
 
-    materialFill.defines = {
-      USE_HIGHLIGHT: 1,
-      USE_HIGHLIGHT_ALT: 1,
-      USE_FRONT_HIGHLIGHT: 1,
-      DITHERING: 1,
-    };
+      materialFill.defines = {
+        USE_HIGHLIGHT: 1,
+        USE_HIGHLIGHT_ALT: 1,
+        USE_FRONT_HIGHLIGHT: 1,
+        DITHERING: 1,
+      };
+    }
 
     this.mesh = new Group();
     const meshFill = new Mesh(geometry, materialFill);
