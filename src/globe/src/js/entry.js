@@ -524,14 +524,13 @@ class CameraDirector {
     // render scale, but that was bleeding the glow inward into the globe
     // body and making the sphere look smaller than the halo.
 
-    // Bake the halo to a Sprite. The halo doesn't rotate or otherwise
-    // move (it's added to the scene root, not parentContainer, and the
-    // camera is fixed), so its rendered pixels are identical every frame.
-    // Replacing the ShaderMaterial sphere with a textured screen-aligned
-    // quad cuts that mesh's per-frame work to a single texture sample.
-    // Run this AFTER the c/p uniform tweak above so the bake captures
-    // the kiosk-tuned rim, not the default narrow one.
-    controller.bakeHaloToSprite();
+    // Halo bake disabled while debugging visual mismatch. With it enabled
+    // the halo appears much thicker on the Car Thing than the live web
+    // version, even at default c/p — suggests the bake itself is widening
+    // the rim somehow (filter aliasing? double-blend?). Live render uses
+    // the original ShaderMaterial sphere; only ~1ms/frame extra cost on
+    // a 24-segment sphere, which is acceptable while we figure this out.
+    // controller.bakeHaloToSprite();
   }
 
   const director = new CameraDirector(controller);
