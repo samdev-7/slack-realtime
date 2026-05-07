@@ -527,7 +527,9 @@ class CameraDirector {
     // the glow several globe-radii inward and made the body look small.
     controller.haloContainer.traverse((m) => {
       const u = m.material && m.material.uniforms;
-      if (u && u.c && u.p) { u.c.value = 0.82; u.p.value = 9.0; }
+      // Rim intensity at the silhouette = c^p. 0.82^9 ≈ 0.15 was still
+      // faint; 0.88^7 ≈ 0.41 reads as a clear ring without bleeding.
+      if (u && u.c && u.p) { u.c.value = 0.88; u.p.value = 7.0; }
     });
 
     // Halo bake disabled while debugging visual mismatch. With it enabled

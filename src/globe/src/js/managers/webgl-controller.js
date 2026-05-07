@@ -552,7 +552,14 @@ export default class WebGLController {
              float ndotl = max(0.0, dot(normalize(dotCenterWorld), uSun));
              float boost = 0.8 + 3.0 * ndotl;
              float distToShadow = distance(dotCenterWorld, uShadowPoint);
-             float shadowMul = mix(0.05, 1.0, smoothstep(0.0, uShadowDist, distToShadow));
+             // Shadow floor 0.2 (not 0.05 like the globe sphere uses) —
+             // dots need more residual brightness because they're small
+             // and the depth-fade alpha hook in the fragment shader
+             // already trims them at the back hemisphere. With a lower
+             // floor the lower-right continents disappear entirely; at
+             // 0.2 the silhouettes stay faintly visible, matching the
+             // way the original PBR setup reads in shadow.
+             float shadowMul = mix(0.2, 1.0, smoothstep(0.0, uShadowDist, distToShadow));
              vLambert = boost * shadowMul;`
           );
       }
