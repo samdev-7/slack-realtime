@@ -557,7 +557,7 @@ export default class WebGLController {
              // and the depth-fade alpha hook in the fragment shader
              // already trims them at the back hemisphere. With a low
              // floor the lower-right continents disappear entirely.
-             float shadowMul = mix(0.35, 1.0, smoothstep(0.0, uShadowDist, distToShadow));
+             float shadowMul = mix(0.5, 1.0, smoothstep(0.0, uShadowDist, distToShadow));
              vLambert = boost * shadowMul;`
           );
       }
