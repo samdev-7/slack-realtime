@@ -7,15 +7,17 @@
     <meta name="description" content="Real time Slack activity on a globe." />
     <meta property="og:type" content="website" />
     <meta property="og:title" content="Hack Club Slack Activity" />
-    <meta property="og:description" content="Real time Slack activity on a globe." />
+    <meta
+      property="og:description"
+      content="Real time Slack activity on a globe."
+    />
     <meta property="og:url" content="https://slack.samliu.dev/" />
-    <meta property="og:image" content="https://slack.samliu.dev/og.png" />
-    <meta property="og:image:width" content="1200" />
-    <meta property="og:image:height" content="630" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="Hack Club Slack Activity" />
-    <meta name="twitter:description" content="Real time Slack activity on a globe." />
-    <meta name="twitter:image" content="https://slack.samliu.dev/og.png" />
+    <meta
+      name="twitter:description"
+      content="Real time Slack activity on a globe."
+    />
     <style>
       html,
       body {
@@ -176,17 +178,26 @@
         // Slack centroids are coarser than that anyway.
         const ARC_TTL_MS = 22000;
         const SPIKE_TTL_MS = 13000;
-        const activeArcs = new Map();   // "fLat,fLon>tLat,tLon" → expiry ms
+        const activeArcs = new Map(); // "fLat,fLon>tLat,tLon" → expiry ms
         const activeSpikes = new Map(); // "lat,lon" → expiry ms
 
-        function rk(n) { return Math.round(n * 1000) / 1000; }
-        function coordKey(c) { return rk(c[0]) + "," + rk(c[1]); }
-        function arcKey(from, to) { return coordKey(from) + ">" + coordKey(to); }
+        function rk(n) {
+          return Math.round(n * 1000) / 1000;
+        }
+        function coordKey(c) {
+          return rk(c[0]) + "," + rk(c[1]);
+        }
+        function arcKey(from, to) {
+          return coordKey(from) + ">" + coordKey(to);
+        }
 
         function isActive(map, key) {
           const exp = map.get(key);
           if (exp === undefined) return false;
-          if (exp <= performance.now()) { map.delete(key); return false; }
+          if (exp <= performance.now()) {
+            map.delete(key);
+            return false;
+          }
           return true;
         }
 
@@ -205,7 +216,8 @@
             fresh.push({ lat: t[0], lon: t[1] });
           }
           if (debug) {
-            const tag = `${msg.reason} ${fmt(from.lat)},${fmt(from.lon)} → ${fresh.length}` +
+            const tag =
+              `${msg.reason} ${fmt(from.lat)},${fmt(from.lon)} → ${fresh.length}` +
               (dropped ? ` (skip ${dropped})` : "");
             showToast(tag);
           }
@@ -217,7 +229,8 @@
           const key = coordKey(msg.at);
           if (isActive(activeSpikes, key)) {
             console.log("[cooldown] spike skip", key);
-            if (debug) showToast(`spot skip ${fmt(msg.at[0])},${fmt(msg.at[1])}`);
+            if (debug)
+              showToast(`spot skip ${fmt(msg.at[0])},${fmt(msg.at[1])}`);
             return;
           }
           activeSpikes.set(key, performance.now() + SPIKE_TTL_MS);
@@ -232,11 +245,11 @@
         // Default to same-origin WS so deployments work behind a TLS proxy
         // (wss://example.com/) without any client-side config. file:// preview
         // falls back to localhost:8787 since there's no origin to inherit.
-        const wsUrl = params.get("ws") || (
-          location.protocol === "file:" || !location.host
+        const wsUrl =
+          params.get("ws") ||
+          (location.protocol === "file:" || !location.host
             ? "ws://127.0.0.1:8787/"
-            : `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/`
-        );
+            : `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/`);
         const MIN_DELAY = 1000;
         const MAX_DELAY = 30000;
         const STABLE_MS = 60000;
@@ -248,32 +261,49 @@
         function connect() {
           reconnectTimer = null;
           if (ws) return;
-          try { ws = new WebSocket(wsUrl); }
-          catch (e) { ws = null; scheduleReconnect(); return; }
+          try {
+            ws = new WebSocket(wsUrl);
+          } catch (e) {
+            ws = null;
+            scheduleReconnect();
+            return;
+          }
           ws.onopen = () => {
-            stableTimer = setTimeout(() => { backoff = MIN_DELAY; }, STABLE_MS);
+            stableTimer = setTimeout(() => {
+              backoff = MIN_DELAY;
+            }, STABLE_MS);
             if (debug) showToast("ws connected");
           };
           ws.onmessage = (e) => {
-            let msg; try { msg = JSON.parse(e.data); } catch { return; }
+            let msg;
+            try {
+              msg = JSON.parse(e.data);
+            } catch {
+              return;
+            }
             if (msg.type === "spot") handleSpot(msg);
             else if (msg.type === "streamer") handleStreamer(msg);
           };
           ws.onclose = () => {
-            if (stableTimer) { clearTimeout(stableTimer); stableTimer = null; }
+            if (stableTimer) {
+              clearTimeout(stableTimer);
+              stableTimer = null;
+            }
             ws = null;
             if (debug) showToast("ws disconnected — reconnecting");
             scheduleReconnect();
           };
-          ws.onerror = () => { try { ws && ws.close(); } catch {} };
+          ws.onerror = () => {
+            try {
+              ws && ws.close();
+            } catch {}
+          };
         }
 
         function scheduleReconnect(immediate = false) {
-          if (reconnectTimer) return;            // already pending
-          if (ws) return;                        // still up; nothing to do
-          const delay = immediate
-            ? 0
-            : backoff * (0.75 + Math.random() * 0.5);
+          if (reconnectTimer) return; // already pending
+          if (ws) return; // still up; nothing to do
+          const delay = immediate ? 0 : backoff * (0.75 + Math.random() * 0.5);
           reconnectTimer = setTimeout(connect, delay);
           if (!immediate) backoff = Math.min(backoff * 2, MAX_DELAY);
         }
@@ -282,12 +312,19 @@
         // came back or the tab regained focus — these are strong hints that
         // a previous failure is no longer applicable, so skip the wait.
         window.addEventListener("online", () => {
-          if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+          if (reconnectTimer) {
+            clearTimeout(reconnectTimer);
+            reconnectTimer = null;
+          }
           backoff = MIN_DELAY;
           if (!ws) scheduleReconnect(true);
         });
         document.addEventListener("visibilitychange", () => {
-          if (document.visibilityState === "visible" && !ws && !reconnectTimer) {
+          if (
+            document.visibilityState === "visible" &&
+            !ws &&
+            !reconnectTimer
+          ) {
             scheduleReconnect(true);
           }
         });
@@ -301,7 +338,12 @@
         if (e.key !== "f" && e.key !== "F") return;
         if (e.ctrlKey || e.metaKey || e.altKey) return;
         const tag = e.target && e.target.tagName;
-        if (tag === "INPUT" || tag === "TEXTAREA" || (e.target && e.target.isContentEditable)) return;
+        if (
+          tag === "INPUT" ||
+          tag === "TEXTAREA" ||
+          (e.target && e.target.isContentEditable)
+        )
+          return;
         e.preventDefault();
         if (document.fullscreenElement) {
           document.exitFullscreen();
