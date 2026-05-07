@@ -39,8 +39,12 @@ export default class MergedPrEntity {
     this.TUBE_RADIUS_SEGMENTS = 3;
     this.HIT_DETAIL_FRACTION = 4; // Higher value -> lower accuracy of hit/hover area
     this.DATA_INCREMENT_SPEED = 1.5; // How fast new lines are added
-    this.PAUSE_LENGTH_FACTOR = 2;
-    this.MIN_PAUSE = 3000;
+    // Arc HOLD duration in count-units = max*(FACTOR-1) + MIN_PAUSE.
+    // Doubling both terms (2→3 and 3000→6000) doubles the held-on-globe
+    // time without changing the draw or despawn animation speed (which
+    // are governed by lineAnimationSpeed).
+    this.PAUSE_LENGTH_FACTOR = 3;
+    this.MIN_PAUSE = 6000;
     const TUBE_RADIUS = 0.08;
     const TUBE_HIT_RADIUS = 0.6;
     const MIN_LINE_DETAIL = 20;
