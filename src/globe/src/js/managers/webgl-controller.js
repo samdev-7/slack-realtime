@@ -557,13 +557,15 @@ export default class WebGLController {
              float ndotlBW = max(0.0, dot(surfNormal, uSunBlueWhite));
              float ndotlBA = max(0.0, dot(surfNormal, uSunBlueAccent));
              float ndotlPK = max(0.0, dot(surfNormal, uSunPink));
-             // Match the original light colors. Multipliers tuned so lit-side
-             // (left) clips to blue-white and the right-front picks up enough
-             // pink to shift LAND's blue-purple toward magenta-purple.
-             vec3 ambient     = vec3(0.55);
-             vec3 contribBW   = vec3(0.663, 0.749, 1.000) * (ndotlBW * 1.5);
-             vec3 contribBA   = vec3(0.129, 0.533, 1.000) * (ndotlBA * 1.0);
-             vec3 contribPink = vec3(0.957, 0.420, 0.745) * (ndotlPK * 0.9);
+             // Lit-side dots should clip toward TRUE white, not blue-white.
+             // Bias the dominant directional contribution toward white and
+             // dial the colored accents down so they read as subtle tints
+             // rather than a saturated rainbow. LAND's base is already
+             // blue-purple, so a little pink/blue goes a long way.
+             vec3 ambient     = vec3(0.7);
+             vec3 contribBW   = vec3(1.0, 1.0, 1.0) * (ndotlBW * 2.0);
+             vec3 contribBA   = vec3(0.55, 0.7, 1.0) * (ndotlBA * 0.35);
+             vec3 contribPink = vec3(1.0, 0.55, 0.8) * (ndotlPK * 0.4);
              // Shadow dampening: dots near the fixed shadow point dim toward
              // 0.5× their lit color (small dots already get alpha-faded by
              // the depth hook below; a 0.5 floor keeps shadow continents
