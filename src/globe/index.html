@@ -155,6 +155,16 @@
       }
       const params = new URLSearchParams(location.search);
       const debug = params.get("debug") === "true";
+      const thing = params.get("thing") === "true";
+      // Car Thing kiosk: hide the credit label and force a pure black bg.
+      // The default #040d21 has a subtle blue cast; on the Car Thing's
+      // OLED-ish panel pure black blends into the bezel and makes the
+      // globe feel like it's floating. Debug controls + globe-side tweaks
+      // live elsewhere.
+      if (thing) {
+        document.querySelector(".label").style.display = "none";
+        document.body.style.background = "#000";
+      }
       document.addEventListener("globeReady", () => {
         if (debug) document.getElementById("controls").hidden = false;
         document.getElementById("spawn-arc").addEventListener("click", () => {

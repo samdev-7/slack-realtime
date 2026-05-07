@@ -7,7 +7,7 @@
 
 import { Vector3, Matrix4, Quaternion } from 'three/build/three.module';
 import WebGLHeader from './core/webgl-header';
-import { GLOBE_RADIUS, GLOBE_CONTAINER } from './core/constants';
+import { GLOBE_RADIUS, GLOBE_CONTAINER, WORLD_DOT_ROWS } from './core/constants';
 import { AppProps } from './core/app-props';
 import { polarToCartesian } from './utils/three-utils';
 
@@ -424,33 +424,86 @@ class CameraDirector {
   if (merged) merged.DATA_INCREMENT_SPEED = 0;
 
   // Car Thing kiosk mode (`?thing=true`). The Spotify Car Thing runs
-  // Chromium at 800×480 with software-only WebGL (Mali GPU isn't wired up
-  // under X11). Three tweaks make the globe usable:
-  //   1. Widen the camera FOV from 20° → 30°. tan(15°)/tan(10°) ≈ 1.52, so
-  //      everything in-scene shrinks to ~66% of its default size at the
-  //      same camera distance. The default framing is too tight for 480px
-  //      tall — arc lofts (which reach 3-4× globe radius above the surface)
-  //      run off the top of the viewport.
-  //   2. Lock the LOWEST render preset. updateRenderQuality() caps DPR to
-  //      1 and thins out world dots; the FPS-watcher would otherwise step
-  //      through tiers to get here, and we know in advance that software
-  //      WebGL on a Cortex-A53 won't hit 60fps. Pin
-  //      fpsWarningThreshold = Infinity so a momentary stutter can't drop
-  //      us below LOWEST and trigger initPerformanceEmergency().
-  //   3. After LOWEST applies its smaller dot size (0.1), bump it back up
-  //      to 0.18 and rebuild the world geometry. The row count stays at
-  //      whatever LOWEST set it to so spacing is unchanged — only each
-  //      dot's radius grows. Small dots disappear at the Car Thing's pixel
-  //      density; bigger ones stay legible.
+  // Chromium at 800×480 with software-only WebGL (Mali GPU isn't wired
+  // up under X11), so every fragment is rasterized on a Cortex-A53 CPU.
+  // Tune for "30fps, looks right at 800×480" rather than for visual
+  // fidelity:
+  //   1. Widen camera FOV 20° → 30°. tan(15°)/tan(10°) ≈ 1.52, so the
+  //      whole scene shrinks to ~66% of its default size — the default
+  //      framing is too tight for 480px tall, arc lofts (3-4× globe
+  //      radius above the surface) run off the top.
+  //   2. Apply the LOWEST quality preset for its non-dot side-effects
+  //      (DPR=1 baseline, indexIncrementSpeed/3, raycastTrigger+6); we
+  //      override the dot fields below.
+  //   3. Sub-native render resolution. At pixelRatio = 0.6, the WebGL
+  //      drawing buffer is 480×288 instead of the display's native
+  //      800×480 — ~64% fewer fragments to shade per frame, which is
+  //      where software WebGL spends almost all of its time. The browser
+  //      upscales to fill the screen. The dots are big enough now that
+  //      this doesn't read as blurry.
+  //   4. Drop fps target to 30. Software WebGL on this CPU can't sustain
+  //      60; leaving target=60 means the FPS-watcher's
+  //      `fps < target * 0.875` check fires every frame. Pin
+  //      fpsWarningThreshold = Infinity belt-and-suspenders so a stutter
+  //      can't drop us below LOWEST into initPerformanceEmergency().
+  //   5. Scale dots PROPORTIONALLY with K. Default look is
+  //      size=0.095 / 200 rows / 2 dots-per-unit-X. To keep the pattern
+  //      proportions identical (just zoomed), multiply size by K and
+  //      divide BOTH the row count and longitudinal density by K. K=2
+  //      gives ~2× larger dots and ~2× larger gaps — same dot-to-gap
+  //      ratio as the default, just bigger to stay legible at this DPI
+  //      and at 0.6× render scale.
+  //   6. Freeze raycasting. The hover/popup pipeline isn't surfaced in
+  //      the kiosk, and raycasting against thousands of arc + spike hit
+  //      meshes per tick is pure waste here.
   if (new URLSearchParams(location.search).get('thing') === 'true') {
     controller.camera.fov = 30;
     controller.camera.updateProjectionMatrix();
+
     controller.renderQuality = 1;
     controller.updateRenderQuality();
-    controller.worldDotSize = 0.18;
+
+    controller.renderer.setPixelRatio(0.6);
+
+    controller.fpsTarget = 30;
+    controller.fpsWarningThreshold = Infinity;
+
+    const K = 2;
+    controller.worldDotSize = 0.095 * K;
+    controller.worldDotRows = Math.round(WORLD_DOT_ROWS / K);
+    controller.dotResolutionX = 2 / K;
     controller.resetWorldMap();
     controller.buildWorldGeometry();
-    controller.fpsWarningThreshold = Infinity;
+
+    controller.raycastTrigger = Infinity;
+
+    // Cap the render loop at 30fps. requestAnimationFrame fires at the
+    // panel refresh (60Hz on the Car Thing); without this cap we paint
+    // every rAF, which is double the work the CPU can keep up with.
+    // 1000/30 ≈ 33.34ms per frame.
+    controller.minFrameMs = 1000 / 30;
+
+    // Skip the entire interaction pipeline. The kiosk has no hover UI
+    // (the popup is hidden via CSS in index.html), and handleUpdate()
+    // bails early when dataInfo is null — the bail-out skips raycasting,
+    // intersect tests, highlight resets, dragging checks, and the whole
+    // openPrEntity/mergedPrEntity highlight pathway. With raycastTrigger
+    // already at Infinity this just makes the savings explicit and
+    // skips a couple of branches per frame on top of that.
+    controller.dataInfo = null;
+
+    // Widen the atmosphere halo. The halo is a thin rim on a 1.15× sphere
+    // (see haloMaterialBlue in webgl-controller.js); its visible band is
+    // controlled by `c` (rim threshold, default 0.7) and `p` (falloff
+    // exponent, default 15). With FOV widened the globe is smaller in the
+    // viewport, and at pixelRatio 0.6 the WebGL buffer is 480×288 — the
+    // default rim is only a couple of fragments wide and gets washed out
+    // by the upscale to 800×480. Pull `c` toward 1.0 to push the glow
+    // further inward and lower `p` so the band stays soft, not a hard ring.
+    controller.haloContainer.traverse((m) => {
+      const u = m.material && m.material.uniforms;
+      if (u && u.c && u.p) { u.c.value = 0.95; u.p.value = 4.0; }
+    });
   }
 
   const director = new CameraDirector(controller);

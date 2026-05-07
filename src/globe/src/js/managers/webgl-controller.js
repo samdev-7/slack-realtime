@@ -100,6 +100,17 @@ export default class WebGLController {
     this.fpsStorage = [];
     this.worldDotRows = WORLD_DOT_ROWS;
     this.worldDotSize = 0.095;
+    // Hoisted out of buildWorldGeometry so callers (e.g. the Car Thing
+    // kiosk path in entry.js) can scale longitudinal dot density in step
+    // with worldDotSize/worldDotRows to preserve the dot-to-gap ratio.
+    this.dotResolutionX = 2;
+    // Frame-rate cap for low-power kiosks. 0 = off (rAF runs at panel
+    // refresh, default behavior). When non-zero, update() short-circuits
+    // until at least this many ms have elapsed since the last rendered
+    // frame, halving (at 33ms / 30fps) the per-frame CPU cost on devices
+    // that can't sustain 60fps anyway.
+    this.minFrameMs = 0;
+    this.lastFrameTime = 0;
     this.renderQuality = 4;
     this.renderer.setPixelRatio(AppProps.pixelRatio || 1);
     this.renderer.setSize(width, height);
@@ -379,7 +390,7 @@ export default class WebGLController {
     const dummyDot = new Object3D();
     const imageData = this.getImageData(worldMap.image);
     const dotData = [];
-    const dotResolutionX = 2; // how many dots per world unit along the X axis
+    const dotResolutionX = this.dotResolutionX;
     const rows = this.worldDotRows;
 
     for (let lat = -90; lat <= 90; lat += 180/rows) {
@@ -887,6 +898,14 @@ export default class WebGLController {
   }
 
   update() {
+    if (this.minFrameMs) {
+      const now = performance.now();
+      if (now - this.lastFrameTime < this.minFrameMs) {
+        this.rafID = requestAnimationFrame(this.update);
+        return;
+      }
+      this.lastFrameTime = now;
+    }
     this.handleUpdate();
     if (!this.hasLoaded) this.sceneDidLoad();
 
