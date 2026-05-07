@@ -266,10 +266,10 @@ export default class OpenPrEntity {
       // varying ~360-3000 across short/long arcs → ~7s..20s. Midpoint ~13s.
       // Proportions follow the typical arc (GROW:HOLD:SHRINK ≈ 1:3:1).
       GROW: opts.grow ?? 2600,
-      // 2× the previous hold so spikes linger on the globe longer before
-      // shrinking. GROW/SHRINK unchanged so the spawn/despawn animation
-      // itself plays at the same speed.
-      HOLD: opts.hold ?? 15600,
+      // ~4× the original 7800ms hold so spikes linger on the globe long
+      // enough to read clearly. SHRINK kept at 2600 — the despawn animation
+      // speed itself isn't an issue, only the time spent at full size.
+      HOLD: opts.hold ?? 30000,
       SHRINK: opts.shrink ?? 2600,
       ring, ringMat,
     });
