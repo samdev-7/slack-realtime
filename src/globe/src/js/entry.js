@@ -489,6 +489,13 @@ class CameraDirector {
 
     controller.raycastTrigger = Infinity;
 
+    // Drop input listeners. The Car Thing's touchscreen would otherwise
+    // let people fling the globe around — fun, but undesirable for an
+    // ambient kiosk. removeListeners() strips just the mouse/touch
+    // handlers; auto-rotation (driven by Controls.update from the tick
+    // loop) keeps running.
+    if (controller.controls) controller.controls.removeListeners();
+
     // Cap the render loop at 30fps. requestAnimationFrame fires at the
     // panel refresh (60Hz on the Car Thing); without this cap we paint
     // every rAF, which is double the work the CPU can keep up with.

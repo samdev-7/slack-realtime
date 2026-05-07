@@ -420,7 +420,11 @@ export default class WebGLController {
           return { x: v.x / len, y: v.y / len, z: v.z / len };
         })()
       : null;
-    const baseColor = new Color(COLORS.LAND);
+    // `instanceColor` is multiplied INTO the material's diffuse color in
+    // the shader (`diffuse.rgb * vInstanceColor`), not used in place of
+    // it — so we store the grayscale brightness factor `k` per channel
+    // and let the multiplier produce LAND × k. Pre-multiplying by LAND
+    // here would square the color and dots come out black.
     const dotColors = sun ? [] : null;
 
     for (let lat = -90; lat <= 90; lat += 180/rows) {
@@ -446,7 +450,7 @@ export default class WebGLController {
           const inv = 1 / this.radius;
           const ndotl = (pos.x * inv) * sun.x + (pos.y * inv) * sun.y + (pos.z * inv) * sun.z;
           const k = 0.45 + 0.55 * Math.max(0, ndotl);
-          dotColors.push(baseColor.r * k, baseColor.g * k, baseColor.b * k);
+          dotColors.push(k, k, k);
         }
       }
     }
