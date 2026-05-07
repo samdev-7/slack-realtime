@@ -521,25 +521,39 @@ export default class WebGLController {
       // ~5–10 vertices per dot × a few thousand dots is negligible
       // compared to per-fragment PBR.
       if (isKiosk) {
-        shader.uniforms.uSun = { value: new Vector3(0, 0.3, 1).normalize() };
+        // Match the original PBR + custom shader's two-stage lighting:
+        //   1. Brightness boost from a directional sun (matches the
+        //      DirectionalLight at world position (-50, 30, 10) — light
+        //      coming from upper-left, slightly forward). Range 0.8..3.8
+        //      so lit-side dots clip toward white in the green/blue
+        //      channels, matching the "almost white" lit look.
+        //   2. Shadow dampening: mix to ~5% near a fixed world-space
+        //      shadowPoint at front-right-bottom of the globe, smooth
+        //      falloff to full at distance shadowDist. This is what
+        //      pushes the lower-right of the globe toward black in the
+        //      original — without it the lighting is symmetric around
+        //      the camera and the globe loses its 3D feel.
+        const r = this.radius;
+        shader.uniforms.uSun = { value: new Vector3(-50, 30, 10).normalize() };
+        shader.uniforms.uShadowPoint = { value: new Vector3(r * 0.7, -r * 0.3, r) };
+        shader.uniforms.uShadowDist = { value: r * 1.5 };
         shader.vertexShader = shader.vertexShader
           .replace(
             '#include <common>',
-            '#include <common>\nuniform vec3 uSun;\nvarying float vLambert;'
+            '#include <common>\nuniform vec3 uSun;\nuniform vec3 uShadowPoint;\nuniform float uShadowDist;\nvarying float vLambert;'
           )
           .replace(
             '#include <project_vertex>',
             `#include <project_vertex>
-             // Each dot's center in world space is (modelMatrix*instanceMatrix*0).xyz.
-             // On a sphere centered at the origin that vector also points outward
-             // along the surface normal, so we don't need a separate normal attr.
-             // Match the brightness range of the original PBR setup
-             // (AmbientLight 0.8 + DirectionalLight 3.0 × ndotl): on the lit
-             // side ndotl≈1 → multiplier≈3.8 → LAND × 3.8 clips to nearly
-             // white in the green/blue channels (the original "almost white"
-             // look). On the dark side ndotl=0 → multiplier=0.8 → dim LAND.
+             // Dot center in world space is (modelMatrix*instanceMatrix*origin).xyz.
+             // For a sphere centered at the origin that also points outward along
+             // the surface normal, so we don't need a separate normal attribute.
              vec3 dotCenterWorld = (modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
-             vLambert = 0.8 + 3.0 * max(0.0, dot(normalize(dotCenterWorld), uSun));`
+             float ndotl = max(0.0, dot(normalize(dotCenterWorld), uSun));
+             float boost = 0.8 + 3.0 * ndotl;
+             float distToShadow = distance(dotCenterWorld, uShadowPoint);
+             float shadowMul = mix(0.05, 1.0, smoothstep(0.0, uShadowDist, distToShadow));
+             vLambert = boost * shadowMul;`
           );
       }
       const fragHead = isKiosk

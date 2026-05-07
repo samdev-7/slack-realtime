@@ -26,12 +26,20 @@ export default class Globe {
 
     const geometry = new SphereBufferGeometry(radius, detail, detail);
 
-    // Kiosk path skips the custom shader entirely. The water/land sphere
-    // is hidden behind the dot pattern at 800×480 — the gradient
-    // highlights and shadow falloff aren't perceptible there, and the
-    // PBR + custom-shader pipeline is the most expensive single fragment
-    // program in the scene. Plain MeshBasicMaterial outputs the water
-    // color directly, no lighting math.
+    // Kiosk path uses MeshBasicMaterial (no PBR pipeline) but injects a
+    // CHEAP per-vertex version of the original custom shader's two
+    // dominant visual effects:
+    //   1. A "shadow" near a fixed world-space point — the original
+    //      `mix(*0.01, full, smoothstep(0, shadowDist, distToShadowPoint))`
+    //      that pushes the lower-right of the globe nearly black.
+    //   2. A directional brightness from a world-space sun aligned with
+    //      the original DirectionalLight (-50, 30, 10) — light comes
+    //      from upper-left, lit-side gets ~1.5× boost.
+    // Both are computed in the vertex shader (sphere has ~600 vertices,
+    // negligible vs per-fragment PBR) and passed to the fragment via a
+    // single varying. The full original chain (PBR + 3 lights + custom
+    // highlights + dithering) runs at thousands of fragments per frame —
+    // this version costs effectively zero on the same hardware.
     const materialFill = this.props.kiosk
       ? new MeshBasicMaterial({ color: waterColor })
       : new MeshStandardMaterial({
@@ -42,7 +50,36 @@ export default class Globe {
 
     this.uniforms = [];
 
-    if (!this.props.kiosk) {
+    if (this.props.kiosk) {
+      materialFill.onBeforeCompile = (shader) => {
+        shader.uniforms.uSun = { value: new Vector3(-50, 30, 10).normalize() };
+        shader.uniforms.uShadowPoint = { value: new Vector3().copy(shadowPoint) };
+        shader.uniforms.uShadowDist = { value: shadowDist };
+        shader.vertexShader = shader.vertexShader
+          .replace(
+            '#include <common>',
+            '#include <common>\nuniform vec3 uSun;\nuniform vec3 uShadowPoint;\nuniform float uShadowDist;\nvarying float vLambert;'
+          )
+          .replace(
+            '#include <project_vertex>',
+            `#include <project_vertex>
+             // World-space vertex position. For a sphere centered at the
+             // origin, normalize(worldPos) doubles as the surface normal.
+             vec3 worldPos = (modelMatrix * vec4(position, 1.0)).xyz;
+             float ndotl = max(0.0, dot(normalize(worldPos), uSun));
+             float boost = 0.6 + 1.0 * ndotl;
+             float distToShadow = distance(worldPos, uShadowPoint);
+             float shadowMul = mix(0.05, 1.0, smoothstep(0.0, uShadowDist, distToShadow));
+             vLambert = boost * shadowMul;`
+          );
+        shader.fragmentShader = shader.fragmentShader
+          .replace('#include <common>', '#include <common>\nvarying float vLambert;')
+          .replace(
+            'gl_FragColor = vec4( outgoingLight, diffuseColor.a );',
+            'gl_FragColor = vec4( outgoingLight * vLambert, diffuseColor.a );'
+          );
+      };
+    } else {
       materialFill.onBeforeCompile = (shader) => {
         shader.uniforms.shadowDist = { value: shadowDist };
         shader.uniforms.highlightDist = { value: highlightDist };
